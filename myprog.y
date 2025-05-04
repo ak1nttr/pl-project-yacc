@@ -12,6 +12,7 @@ int line_num = 1;
 // Value types for runtime evaluation
 typedef enum {
     VAL_INTEGER,
+    VAL_FLOAT,  
     VAL_STRING,
     VAL_BOOLEAN
 } ValueType;
@@ -21,6 +22,7 @@ typedef struct {
     ValueType type;
     union {
         int ival;
+        double fval;  
         char* sval;
         int bval;
     } data;
@@ -40,6 +42,7 @@ int symbol_count = 0;
 // AST node types
 typedef enum {
     NODE_INTEGER,
+    NODE_FLOAT,   
     NODE_STRING,
     NODE_BOOLEAN,
     NODE_IDENTIFIER,
@@ -58,6 +61,7 @@ typedef struct ASTNode {
     NodeType type;
     union {
         int ival;                  // For integer literals
+        double fval;               // For floating point literals
         char* sval;                // For strings and identifiers
         int bval;                  // For booleans
         
@@ -107,6 +111,7 @@ typedef struct ASTNode {
 
 // Forward declarations for AST functions
 ASTNode* create_integer_node(int value);
+ASTNode* create_float_node(double value); 
 ASTNode* create_string_node(char* value);
 ASTNode* create_boolean_node(int value);
 ASTNode* create_identifier_node(char* name);
@@ -136,6 +141,7 @@ ASTNode* program_root = NULL;
 
 %union {
     int ival;
+    double fval;   
     char* sval;
     int bval;
     struct ASTNode* node;
@@ -149,6 +155,7 @@ ASTNode* program_root = NULL;
 %token LPAREN RPAREN LBRACE RBRACE SEMICOLON
 
 %token <ival> INTEGER
+%token <fval> FLOAT 
 %token <sval> STRING IDENTIFIER
 %token <bval> BOOLEAN
 
@@ -279,6 +286,9 @@ factor:
     | INTEGER { 
         $$ = create_integer_node($1);
     }
+    | FLOAT { 
+        $$ = create_float_node($1); 
+    }
     | STRING { 
         $$ = create_string_node($1);
         free($1); // Free the string
@@ -301,6 +311,13 @@ ASTNode* create_integer_node(int value) {
     ASTNode* node = malloc(sizeof(ASTNode));
     node->type = NODE_INTEGER;
     node->data.ival = value;
+    return node;
+}
+
+ASTNode* create_float_node(double value) {
+    ASTNode* node = malloc(sizeof(ASTNode));
+    node->type = NODE_FLOAT;
+    node->data.fval = value;
     return node;
 }
 
@@ -463,7 +480,7 @@ void free_ast(ASTNode* node) {
             break;
             
         default:
-            break; // No memory to free for other types
+            break; // No memory to free for other types (INTEGER, FLOAT, BOOLEAN)
     }
     
     free(node);
@@ -474,6 +491,8 @@ int value_to_boolean(Value val) {
     switch (val.type) {
         case VAL_INTEGER:
             return val.data.ival != 0;
+        case VAL_FLOAT:
+            return val.data.fval != 0.0; 
         case VAL_STRING:
             return val.data.sval != NULL && strlen(val.data.sval) > 0;
         case VAL_BOOLEAN:
@@ -532,6 +551,11 @@ Value evaluate_expression(ASTNode* expr) {
             result.data.ival = expr->data.ival;
             break;
             
+        case NODE_FLOAT:
+            result.type = VAL_FLOAT;
+            result.data.fval = expr->data.fval;
+            break;
+            
         case NODE_STRING:
             result.type = VAL_STRING;
             result.data.sval = strdup(expr->data.sval);
@@ -575,6 +599,8 @@ Value evaluate_expression(ASTNode* expr) {
                     strncpy(left_str, left.data.sval, 255);
                 } else if (left.type == VAL_INTEGER) {
                     sprintf(left_str, "%d", left.data.ival);
+                } else if (left.type == VAL_FLOAT) {
+                    sprintf(left_str, "%g", left.data.fval);  
                 } else if (left.type == VAL_BOOLEAN) {
                     sprintf(left_str, "%s", left.data.bval ? "true" : "false");
                 }
@@ -584,6 +610,8 @@ Value evaluate_expression(ASTNode* expr) {
                     strncpy(right_str, right.data.sval, 255);
                 } else if (right.type == VAL_INTEGER) {
                     sprintf(right_str, "%d", right.data.ival);
+                } else if (right.type == VAL_FLOAT) {
+                    sprintf(right_str, "%g", right.data.fval); 
                 } else if (right.type == VAL_BOOLEAN) {
                     sprintf(right_str, "%s", right.data.bval ? "true" : "false");
                 }
@@ -605,12 +633,31 @@ Value evaluate_expression(ASTNode* expr) {
                 break;
             }
             
-            // For other operations, convert to integers
-            int left_val = (left.type == VAL_INTEGER) ? left.data.ival : 
-                          (left.type == VAL_BOOLEAN) ? left.data.bval : 0;
-                          
-            int right_val = (right.type == VAL_INTEGER) ? right.data.ival : 
-                           (right.type == VAL_BOOLEAN) ? right.data.bval : 0;
+            // Check if either operand is a float
+            int use_float = (left.type == VAL_FLOAT || right.type == VAL_FLOAT);
+            
+            double left_val, right_val;
+            
+            // Convert to numeric values 
+            if (left.type == VAL_INTEGER) {
+                left_val = (double)left.data.ival;
+            } else if (left.type == VAL_FLOAT) {
+                left_val = left.data.fval;
+            } else if (left.type == VAL_BOOLEAN) {
+                left_val = (double)left.data.bval;
+            } else {
+                left_val = 0.0;
+            }
+            
+            if (right.type == VAL_INTEGER) {
+                right_val = (double)right.data.ival;
+            } else if (right.type == VAL_FLOAT) {
+                right_val = right.data.fval;
+            } else if (right.type == VAL_BOOLEAN) {
+                right_val = (double)right.data.bval;
+            } else {
+                right_val = 0.0;
+            }
             
             // Free any string values
             if (left.type == VAL_STRING && left.data.sval) {
@@ -620,24 +667,49 @@ Value evaluate_expression(ASTNode* expr) {
                 free(right.data.sval);
             }
             
-            result.type = VAL_INTEGER;
+            // Set result type based on operands
+            if (use_float) {
+                result.type = VAL_FLOAT;
+            } else {
+                result.type = VAL_INTEGER;
+            }
             
             switch (expr->data.binary_op.op) {
                 case PLUS:
-                    result.data.ival = left_val + right_val;
+                    if (use_float) {
+                        result.data.fval = left_val + right_val;
+                    } else {
+                        result.data.ival = (int)left_val + (int)right_val;
+                    }
                     break;
                 case MINUS:
-                    result.data.ival = left_val - right_val;
+                    if (use_float) {
+                        result.data.fval = left_val - right_val;
+                    } else {
+                        result.data.ival = (int)left_val - (int)right_val;
+                    }
                     break;
                 case MULTIPLY:
-                    result.data.ival = left_val * right_val;
+                    if (use_float) {
+                        result.data.fval = left_val * right_val;
+                    } else {
+                        result.data.ival = (int)left_val * (int)right_val;
+                    }
                     break;
                 case DIVIDE:
-                    if (right_val == 0) {
+                    if (right_val == 0.0) {
                         fprintf(stderr, "Error: Division by zero\n");
-                        result.data.ival = 0;
+                        if (use_float) {
+                            result.data.fval = 0.0;
+                        } else {
+                            result.data.ival = 0;
+                        }
                     } else {
-                        result.data.ival = left_val / right_val;
+                        if (use_float) {
+                            result.data.fval = left_val / right_val;
+                        } else {
+                            result.data.ival = (int)left_val / (int)right_val;
+                        }
                     }
                     break;
                 case LESS_THAN:
@@ -666,7 +738,11 @@ Value evaluate_expression(ASTNode* expr) {
                     break;
                 default:
                     fprintf(stderr, "Error: Unknown binary operator\n");
-                    result.data.ival = 0;
+                    if (use_float) {
+                        result.data.fval = 0.0;
+                    } else {
+                        result.data.ival = 0;
+                    }
             }
             break;
         }
@@ -674,25 +750,40 @@ Value evaluate_expression(ASTNode* expr) {
         case NODE_UNARY_OP: {
             Value operand = evaluate_expression(expr->data.unary_op.operand);
             
-            // Convert to integer/boolean
-            int val = (operand.type == VAL_INTEGER) ? operand.data.ival : 
-                     (operand.type == VAL_BOOLEAN) ? operand.data.bval : 0;
+            // Handle float vs integer for unary operations
+            if (operand.type == VAL_FLOAT) {
+                result.type = VAL_FLOAT;
+                
+                switch (expr->data.unary_op.op) {
+                    case MINUS:
+                        result.data.fval = -operand.data.fval;
+                        break;
+                    default:
+                        fprintf(stderr, "Error: Unknown unary operator\n");
+                        result.data.fval = 0.0;
+                }
+            } else {
+                // Convert to integer/boolean for non-float operands
+                int val = (operand.type == VAL_INTEGER) ? operand.data.ival : 
+                         (operand.type == VAL_BOOLEAN) ? operand.data.bval : 0;
+                
+                switch (expr->data.unary_op.op) {
+                    case MINUS:
+                        result.type = VAL_INTEGER;
+                        result.data.ival = -val;
+                        break;
+                    default:
+                        fprintf(stderr, "Error: Unknown unary operator\n");
+                        result.type = VAL_INTEGER;
+                        result.data.ival = 0;
+                }
+            }
             
             // Free string if needed
             if (operand.type == VAL_STRING && operand.data.sval) {
                 free(operand.data.sval);
             }
             
-            switch (expr->data.unary_op.op) {
-                case MINUS:
-                    result.type = VAL_INTEGER;
-                    result.data.ival = -val;
-                    break;
-                default:
-                    fprintf(stderr, "Error: Unknown unary operator\n");
-                    result.type = VAL_INTEGER;
-                    result.data.ival = 0;
-            }
             break;
         }
         
@@ -756,6 +847,9 @@ void print_value(Value val) {
     switch (val.type) {
         case VAL_INTEGER:
             printf("%d\n", val.data.ival);
+            break;
+        case VAL_FLOAT:
+            printf("%g\n", val.data.fval);  
             break;
         case VAL_STRING:
             printf("%s\n", val.data.sval);

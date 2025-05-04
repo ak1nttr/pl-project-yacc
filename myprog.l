@@ -6,8 +6,10 @@
 
 extern int line_num;
 
+
 typedef enum {
     VAL_INTEGER,
+    VAL_FLOAT,   
     VAL_STRING,
     VAL_BOOLEAN
 } ValueType;
@@ -17,6 +19,7 @@ typedef struct {
     ValueType type;
     union {
         int ival;
+        double fval;  
         char* sval;
         int bval;
     } data;
@@ -29,6 +32,7 @@ DIGIT       [0-9]
 LETTER      [a-zA-Z]
 ID          {LETTER}({LETTER}|{DIGIT}|_)*
 INT         {DIGIT}+
+FLOAT       ({DIGIT}+\.{DIGIT}*)|({DIGIT}*\.{DIGIT}+)
 STRING      \"[^\"]*\"
 WHITESPACE  [ \t]+
 NEWLINE     \n|\r|\r\n
@@ -77,6 +81,11 @@ NEWLINE     \n|\r|\r\n
 {ID}            { 
                   yylval.sval = strdup(yytext);
                   return IDENTIFIER; 
+                }
+
+{FLOAT}         { 
+                  yylval.fval = atof(yytext);  
+                  return FLOAT;                
                 }
 
 {INT}           { 
