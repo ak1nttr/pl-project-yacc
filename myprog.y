@@ -16,11 +16,14 @@ typedef enum {
     VAL_STRING,
     VAL_BOOLEAN,
     VAL_FUNCTION,  
-    VAL_EXCEPTION 
+    VAL_EXCEPTION,
+    VAL_ARRAY      
 } ValueType;
 
+typedef struct Value Value;
+
 // Value structure for runtime evaluation
-typedef struct {
+struct Value {
     ValueType type;
     union {
         int ival;
@@ -29,14 +32,19 @@ typedef struct {
         int bval;
         struct {
             struct ASTNode* func_def;  
-            char* name;               
+            char* name;
         } func;
         struct {
-            char* message;            
+            char* message;
             char* type;                
         } exception;
+        struct {
+            Value* elements;    // Array elements
+            int length;         // Array length
+            int capacity;       // Array capacity
+        } array;
     } data;
-} Value;
+};
 
 // For returning from functions and exception handling
 typedef struct {
@@ -82,9 +90,11 @@ typedef enum {
     NODE_BLOCK,
     NODE_FUNCTION_DEF,
     NODE_FUNCTION_CALL,
-    NODE_RETURN, 
-    NODE_TRY_CATCH,
-    NODE_THROW
+    NODE_RETURN,      
+    NODE_TRY_CATCH,  
+    NODE_THROW,    
+    NODE_ARRAY_LITERAL,  
+    NODE_ARRAY_ACCESS    
 } NodeType;
 
 // AST node structure
@@ -165,6 +175,16 @@ typedef struct ASTNode {
         struct {                   // For throw statements
             struct ASTNode* expr;  // Exception expression to throw
         } throw_stmt;
+        
+        struct {                   // For array literals
+            struct ASTNode** elements;  // Array of expression nodes
+            int count;             // Number of elements
+        } array_literal;
+        
+        struct {                   // For array access
+            struct ASTNode* array; // Array expression (can be identifier or another expression)
+            struct ASTNode* index; // Index expression
+        } array_access;
     } data;
 } ASTNode;
 
@@ -187,6 +207,9 @@ ASTNode* create_function_call_node(char* name);
 ASTNode* create_return_node(ASTNode* expr);
 ASTNode* create_try_catch_node(ASTNode* try_block, ASTNode* catch_block, char* exception_var, ASTNode* finally_block);
 ASTNode* create_throw_node(ASTNode* expr);
+ASTNode* create_array_literal_node();
+void add_element_to_array_literal(ASTNode* array_node, ASTNode* element);
+ASTNode* create_array_access_node(ASTNode* array, ASTNode* index);
 void add_statement_to_block(ASTNode* block, ASTNode* statement);
 void add_parameter_to_function(ASTNode* func_def, char* param);
 void add_argument_to_function_call(ASTNode* func_call, ASTNode* arg);
@@ -206,10 +229,13 @@ void pop_scope();
 
 // Evaluation functions
 Value evaluate_expression(ASTNode* expr);
+Value evaluate_array_literal(ASTNode* expr);
+Value evaluate_array_access(ASTNode* expr);
 ReturnValue interpret(ASTNode* node);
 ReturnValue interpret_block(ASTNode* block, int new_scope);
 ReturnValue call_function(ASTNode* func_def, ASTNode** arguments, int arg_count);
 void print_value(Value val);
+void print_value_ln(Value val);
 int value_to_boolean(Value val);
 Value copy_value(Value val);
 void free_value(Value val);
@@ -238,9 +264,10 @@ ASTNode* program_root = NULL;
 %token VAR IF ELSE WHILE PRINT FUNCTION RETURN
 %token TRY CATCH FINALLY THROW
 %token PLUS MINUS MULTIPLY DIVIDE
+%token AND OR NOT
 %token ASSIGN
 %token EQUAL NOT_EQUAL LESS_THAN LESS_EQUAL GREATER_THAN GREATER_EQUAL
-%token LPAREN RPAREN LBRACE RBRACE SEMICOLON COMMA
+%token LPAREN RPAREN LBRACE RBRACE LBRACKET RBRACKET SEMICOLON COMMA
 
 %token <ival> INTEGER
 %token <fval> FLOAT
@@ -252,14 +279,20 @@ ASTNode* program_root = NULL;
 %type <node> declaration assignment if_statement while_statement print_statement
 %type <node> expression term factor block function_definition function_call return_statement
 %type <node> try_statement catch_block finally_block throw_statement
+%type <node> array_literal array_access array_element_list
 %type <param_list> parameter_list optional_parameter_list
 %type <arg_list> argument_list optional_argument_list
 
-/* Define operator precedence */
+/*  operator precedences */
+
 %left EQUAL NOT_EQUAL
 %left LESS_THAN LESS_EQUAL GREATER_THAN GREATER_EQUAL
 %left PLUS MINUS
 %left MULTIPLY DIVIDE
+%left OR      
+%left AND       
+%right NOT    
+%left LBRACKET 
 %nonassoc UMINUS
 
 %%
@@ -312,6 +345,13 @@ assignment:
     IDENTIFIER ASSIGN expression {
         $$ = create_assignment_node($1, $3);
         free($1); // Free the identifier string
+    }
+    | factor LBRACKET expression RBRACKET ASSIGN expression {
+        // Create an array access node
+        ASTNode* access = create_array_access_node($1, $3);
+        
+        // Create a special binary op node for array assignment
+        $$ = create_binary_op_node(access, ASSIGN, $6);
     }
     ;
 
@@ -442,6 +482,32 @@ throw_statement:
     }
     ;
 
+array_literal:
+    LBRACKET RBRACKET {
+        $$ = create_array_literal_node();
+    }
+    | LBRACKET array_element_list RBRACKET {
+        $$ = $2;
+    }
+    ;
+
+array_element_list:
+    expression {
+        $$ = create_array_literal_node();
+        add_element_to_array_literal($$, $1);
+    }
+    | array_element_list COMMA expression {
+        $$ = $1;
+        add_element_to_array_literal($$, $3);
+    }
+    ;
+
+array_access:
+    factor LBRACKET expression RBRACKET {
+        $$ = create_array_access_node($1, $3);
+    }
+    ;
+
 expression:
     term { $$ = $1; }
     | expression PLUS term {
@@ -467,6 +533,15 @@ expression:
     }
     | expression NOT_EQUAL term {
         $$ = create_binary_op_node($1, NOT_EQUAL, $3);
+    }
+    | expression AND expression {
+        $$ = create_binary_op_node($1, AND, $3);
+    }
+    | expression OR expression {
+        $$ = create_binary_op_node($1, OR, $3);
+    }
+    | NOT expression {
+        $$ = create_unary_op_node(NOT, $2);
     }
     ;
 
@@ -507,9 +582,21 @@ factor:
     | function_call {
         $$ = $1;
     }
+    | array_literal {
+        $$ = $1;
+    }
+    | array_access {
+        $$ = $1;
+    }
     ;
 
 %%
+
+// Print a value with newline
+void print_value_ln(Value val) {
+    print_value(val);
+    printf("\n");
+}
 
 // AST node creation functions
 ASTNode* create_integer_node(int value) {
@@ -656,6 +743,31 @@ ASTNode* create_throw_node(ASTNode* expr) {
     return node;
 }
 
+ASTNode* create_array_literal_node() {
+    ASTNode* node = malloc(sizeof(ASTNode));
+    node->type = NODE_ARRAY_LITERAL;
+    node->data.array_literal.elements = malloc(sizeof(ASTNode*) * 10); // Initial capacity
+    node->data.array_literal.count = 0;
+    return node;
+}
+
+void add_element_to_array_literal(ASTNode* array_node, ASTNode* element) {
+    if (array_node->type != NODE_ARRAY_LITERAL) {
+        fprintf(stderr, "Error: Not an array literal node\n");
+        return;
+    }
+    
+    array_node->data.array_literal.elements[array_node->data.array_literal.count++] = element;
+}
+
+ASTNode* create_array_access_node(ASTNode* array, ASTNode* index) {
+    ASTNode* node = malloc(sizeof(ASTNode));
+    node->type = NODE_ARRAY_ACCESS;
+    node->data.array_access.array = array;
+    node->data.array_access.index = index;
+    return node;
+}
+
 void add_statement_to_block(ASTNode* block, ASTNode* statement) {
     if (block->type != NODE_BLOCK) {
         fprintf(stderr, "Error: Not a block node\n");
@@ -772,6 +884,18 @@ void free_ast(ASTNode* node) {
             free_ast(node->data.throw_stmt.expr);
             break;
             
+        case NODE_ARRAY_LITERAL:
+            for (int i = 0; i < node->data.array_literal.count; i++) {
+                free_ast(node->data.array_literal.elements[i]);
+            }
+            free(node->data.array_literal.elements);
+            break;
+            
+        case NODE_ARRAY_ACCESS:
+            free_ast(node->data.array_access.array);
+            free_ast(node->data.array_access.index);
+            break;
+            
         default:
             break; // No memory to free for other types (INTEGER, FLOAT, BOOLEAN)
     }
@@ -779,7 +903,6 @@ void free_ast(ASTNode* node) {
     free(node);
 }
 
-// Coerce a value to boolean (for conditions)
 int value_to_boolean(Value val) {
     switch (val.type) {
         case VAL_INTEGER:
@@ -792,6 +915,10 @@ int value_to_boolean(Value val) {
             return val.data.bval;
         case VAL_FUNCTION:
             return 1;  // Functions are always "truthy"
+        case VAL_EXCEPTION:
+            return 1;  // Exceptions are "truthy"
+        case VAL_ARRAY:
+            return val.data.array.length > 0;  // Arrays are "truthy" if not empty
     }
     return 0;
 }
@@ -831,6 +958,13 @@ void free_value(Value val) {
         if (val.data.exception.type) {
             free(val.data.exception.type);
         }
+    } else if (val.type == VAL_ARRAY) {
+        // Free each element in the array
+        for (int i = 0; i < val.data.array.length; i++) {
+            free_value(val.data.array.elements[i]);
+        }
+        // Free the array itself
+        free(val.data.array.elements);
     }
 }
 
@@ -850,9 +984,91 @@ Value copy_value(Value val) {
         if (val.data.exception.type) {
             copy.data.exception.type = strdup(val.data.exception.type);
         }
+    } else if (val.type == VAL_ARRAY) {
+        // Copy array elements
+        copy.data.array.elements = malloc(sizeof(Value) * val.data.array.capacity);
+        copy.data.array.length = val.data.array.length;
+        copy.data.array.capacity = val.data.array.capacity;
+        
+        // Deep copy each element
+        for (int i = 0; i < val.data.array.length; i++) {
+            copy.data.array.elements[i] = copy_value(val.data.array.elements[i]);
+        }
     }
     
     return copy;
+}
+
+// Create an empty array with initial capacity
+Value create_array(int capacity) {
+    Value array;
+    array.type = VAL_ARRAY;
+    array.data.array.elements = malloc(sizeof(Value) * capacity);
+    array.data.array.length = 0;
+    array.data.array.capacity = capacity;
+    return array;
+}
+
+// Get an element from an array
+Value get_array_element(Value array, int index) {
+    if (array.type != VAL_ARRAY) {
+        fprintf(stderr, "Error: Not an array\n");
+        Value error;
+        error.type = VAL_EXCEPTION;
+        error.data.exception.message = strdup("Not an array");
+        error.data.exception.type = strdup("TypeError");
+        return error;
+    }
+    
+    if (index < 0 || index >= array.data.array.length) {
+        fprintf(stderr, "Error: Array index out of bounds\n");
+        Value error;
+        error.type = VAL_EXCEPTION;
+        error.data.exception.message = strdup("Array index out of bounds");
+        error.data.exception.type = strdup("IndexError");
+        return error;
+    }
+    
+    return copy_value(array.data.array.elements[index]);
+}
+
+// Set an element in an array
+int set_array_element(Value* array, int index, Value value) {
+    if (array->type != VAL_ARRAY) {
+        fprintf(stderr, "Error: Not an array\n");
+        return 0;
+    }
+    
+    // Check if index is out of bounds
+    // Allow setting at array.length (appending), but not beyond
+    if (index < 0 || index > array->data.array.length) {
+        fprintf(stderr, "Error: Array index out of bounds\n");
+        return 0;
+    }
+    
+    // Resize array if needed
+    if (index >= array->data.array.capacity) {
+        int new_capacity = array->data.array.capacity * 2;
+        if (index >= new_capacity) {
+            new_capacity = index + 1;
+        }
+        
+        array->data.array.elements = realloc(array->data.array.elements, sizeof(Value) * new_capacity);
+        array->data.array.capacity = new_capacity;
+    }
+    
+    // If we're appending to the end
+    if (index == array->data.array.length) {
+        array->data.array.length++;
+    } else {
+        // Free old value if replacing an existing element
+        free_value(array->data.array.elements[index]);
+    }
+    
+    // Set the new value
+    array->data.array.elements[index] = copy_value(value);
+    
+    return 1;
 }
 
 // Create an exception value
@@ -974,32 +1190,121 @@ void set_variable(char* name, Value value) {
 }
 
 Value get_variable(char* name) {
-    return get_symbol_value(current_symbols, name);
+    Value val = get_symbol_value(current_symbols, name);
+    
+    // Check if symbol was found (assuming a default value of 0)
+    if (val.type == VAL_INTEGER && val.data.ival == 0) {
+        // Check if it was actually found or just default
+        if (find_symbol(name) == -1) {
+            // Symbol not found, throw exception
+            fprintf(stderr, "Error: Undefined variable '%s'\n", name);
+            Value exception = create_exception("ReferenceError", "Undefined variable");
+            return exception;
+        }
+    }
+    
+    return val;
 }
 
 void print_value(Value val) {
     switch (val.type) {
         case VAL_INTEGER:
-            printf("%d\n", val.data.ival);
+            printf("%d", val.data.ival);
             break;
         case VAL_FLOAT:
-            printf("%g\n", val.data.fval);
+            printf("%g", val.data.fval);
             break;
         case VAL_STRING:
-            printf("%s\n", val.data.sval);
+            printf("%s", val.data.sval);
             break;
         case VAL_BOOLEAN:
-            printf("%s\n", val.data.bval ? "true" : "false");
+            printf("%s", val.data.bval ? "true" : "false");
             break;
         case VAL_FUNCTION:
-            printf("function %s\n", val.data.func.name);
+            printf("function %s", val.data.func.name);
             break;
         case VAL_EXCEPTION:
-            printf("Exception %s: %s\n", 
+            printf("Exception %s: %s", 
                 val.data.exception.type ? val.data.exception.type : "Error",
                 val.data.exception.message ? val.data.exception.message : "Unknown error");
             break;
+        case VAL_ARRAY:
+            printf("[");
+            for (int i = 0; i < val.data.array.length; i++) {
+                print_value(val.data.array.elements[i]);
+                if (i < val.data.array.length - 1) {
+                    printf(", ");
+                }
+            }
+            printf("]");
+            break;
     }
+}
+
+// Evaluate array literal
+Value evaluate_array_literal(ASTNode* expr) {
+    Value result = create_array(expr->data.array_literal.count);
+    
+    // Evaluate each element and add to the array
+    for (int i = 0; i < expr->data.array_literal.count; i++) {
+        Value element = evaluate_expression(expr->data.array_literal.elements[i]);
+        
+        // Check if element evaluation resulted in an exception
+        if (element.type == VAL_EXCEPTION) {
+            // Clean up the array we were building
+            free_value(result);
+            return element;
+        }
+        
+        // Add element to array
+        set_array_element(&result, i, element);
+        
+        // Free the temporary element value
+        free_value(element);
+    }
+    
+    return result;
+}
+
+// Evaluate array access
+Value evaluate_array_access(ASTNode* expr) {
+    // Evaluate the array expression
+    Value array = evaluate_expression(expr->data.array_access.array);
+    
+    // Check if array evaluation resulted in an exception
+    if (array.type == VAL_EXCEPTION) {
+        return array;
+    }
+    
+    // Check if it's an array
+    if (array.type != VAL_ARRAY) {
+        free_value(array);
+        return create_exception("TypeError", "Not an array");
+    }
+    
+    // Evaluate the index expression
+    Value index = evaluate_expression(expr->data.array_access.index);
+    
+    // Check if index evaluation resulted in an exception
+    if (index.type == VAL_EXCEPTION) {
+        free_value(array);
+        return index;
+    }
+    
+    // Check if index is a number
+    if (index.type != VAL_INTEGER) {
+        free_value(array);
+        free_value(index);
+        return create_exception("TypeError", "Array index must be an integer");
+    }
+    
+    // Get the array element
+    Value result = get_array_element(array, index.data.ival);
+    
+    // Free temporary values
+    free_value(array);
+    
+    return result;
 }
 
 // Runtime evaluation
@@ -1032,7 +1337,105 @@ Value evaluate_expression(ASTNode* expr) {
             break;
         }
         
+        case NODE_ARRAY_LITERAL:
+            result = evaluate_array_literal(expr);
+            break;
+            
+        case NODE_ARRAY_ACCESS:
+            result = evaluate_array_access(expr);
+            break;
+        
         case NODE_BINARY_OP: {
+            // Special case for array assignment
+            if (expr->data.binary_op.op == ASSIGN && expr->data.binary_op.left->type == NODE_ARRAY_ACCESS) {
+                // Get the array and index
+                ASTNode* array_access = expr->data.binary_op.left;
+                ASTNode* array_expr = array_access->data.array_access.array;
+                ASTNode* index_expr = array_access->data.array_access.index;
+                
+                // Evaluate the array
+                Value array = evaluate_expression(array_expr);
+                
+                // Check if array evaluation resulted in an exception
+                if (array.type == VAL_EXCEPTION) {
+                    return array;
+                }
+                
+                // Check if it's an array
+                if (array.type != VAL_ARRAY) {
+                    free_value(array);
+                    return create_exception("TypeError", "Cannot index non-array value");
+                }
+                
+                // Evaluate the index
+                Value index = evaluate_expression(index_expr);
+                
+                // Check if index evaluation resulted in an exception
+                if (index.type == VAL_EXCEPTION) {
+                    free_value(array);
+                    return index;
+                }
+                
+                // Check if index is an integer
+                if (index.type != VAL_INTEGER) {
+                    free_value(array);
+                    free_value(index);
+                    return create_exception("TypeError", "Array index must be an integer");
+                }
+                
+                // Evaluate the right side (value to assign)
+                Value value = evaluate_expression(expr->data.binary_op.right);
+                
+                // Check if value evaluation resulted in an exception
+                if (value.type == VAL_EXCEPTION) {
+                    free_value(array);
+                    free_value(index);
+                    return value;
+                }
+                
+                // Get variable name if the array is an identifier
+                if (array_expr->type == NODE_IDENTIFIER) {
+                    char* var_name = array_expr->data.sval;
+                    
+                    // Get the current array value
+                    Value current_array = get_variable(var_name);
+                    
+                    // Set the element in the array
+                    int success = set_array_element(&current_array, index.data.ival, value);
+                    if (!success) {
+                        // Free temporary arrays
+                        free_value(current_array);
+                        free_value(array);
+                        free_value(index);
+                        free_value(value);
+                        
+                        // Return an exception
+                        return create_exception("IndexError", "Array index out of bounds");
+                    }
+                    // Update the variable with the modified array
+                    set_variable(var_name, current_array);
+                    
+                    // Free temporary array
+                    free_value(current_array);
+                    
+                    // Return the assigned value
+                    result = copy_value(value);
+                } else {
+                    // Cannot assign to a non-variable array
+                    free_value(array);
+                    free_value(index);
+                    free_value(value);
+                    return create_exception("TypeError", "Cannot assign to a non-variable array");
+                }
+                
+                // Free temporary values
+                free_value(array);
+                free_value(index);
+                free_value(value);
+                
+                break;
+            }
+            
             Value left = evaluate_expression(expr->data.binary_op.left);
             Value right = evaluate_expression(expr->data.binary_op.right);
             
@@ -1058,6 +1461,40 @@ Value evaluate_expression(ASTNode* expr) {
                     // Convert exception to string
                     sprintf(left_str, "%s", left.data.exception.message ? 
                             left.data.exception.message : "Unknown error");
+                } else if (left.type == VAL_ARRAY) {
+                    // Convert array to string representation
+                    char* temp = malloc(1024); // Temporary buffer
+                    temp[0] = '\0';
+                    strcat(temp, "[");
+                    
+                    for (int i = 0; i < left.data.array.length; i++) {
+                        char elem_str[64];
+                        
+                        // Convert element to string
+                        if (left.data.array.elements[i].type == VAL_INTEGER) {
+                            sprintf(elem_str, "%d", left.data.array.elements[i].data.ival);
+                        } else if (left.data.array.elements[i].type == VAL_FLOAT) {
+                            sprintf(elem_str, "%g", left.data.array.elements[i].data.fval);
+                        } else if (left.data.array.elements[i].type == VAL_STRING) {
+                            sprintf(elem_str, "\"%s\"", left.data.array.elements[i].data.sval);
+                        } else if (left.data.array.elements[i].type == VAL_BOOLEAN) {
+                            sprintf(elem_str, "%s", left.data.array.elements[i].data.bval ? "true" : "false");
+                        } else {
+                            strcpy(elem_str, "...");
+                        }
+                        
+                        // Add to buffer
+                        strcat(temp, elem_str);
+                        
+                        // Add separator if not last element
+                        if (i < left.data.array.length - 1) {
+                            strcat(temp, ", ");
+                        }
+                    }
+                    
+                    strcat(temp, "]");
+                    strncpy(left_str, temp, 255);
+                    free(temp);
                 }
                 
                 // Convert right to string
@@ -1075,6 +1512,40 @@ Value evaluate_expression(ASTNode* expr) {
                     // Convert exception to string
                     sprintf(right_str, "%s", right.data.exception.message ? 
                             right.data.exception.message : "Unknown error");
+                } else if (right.type == VAL_ARRAY) {
+                    // Convert array to string representation
+                    char* temp = malloc(1024); // Temporary buffer
+                    temp[0] = '\0';
+                    strcat(temp, "[");
+                    
+                    for (int i = 0; i < right.data.array.length; i++) {
+                        char elem_str[64];
+                        
+                        // Convert element to string
+                        if (right.data.array.elements[i].type == VAL_INTEGER) {
+                            sprintf(elem_str, "%d", right.data.array.elements[i].data.ival);
+                        } else if (right.data.array.elements[i].type == VAL_FLOAT) {
+                            sprintf(elem_str, "%g", right.data.array.elements[i].data.fval);
+                        } else if (right.data.array.elements[i].type == VAL_STRING) {
+                            sprintf(elem_str, "\"%s\"", right.data.array.elements[i].data.sval);
+                        } else if (right.data.array.elements[i].type == VAL_BOOLEAN) {
+                            sprintf(elem_str, "%s", right.data.array.elements[i].data.bval ? "true" : "false");
+                        } else {
+                            strcpy(elem_str, "...");
+                        }
+                        
+                        // Add to buffer
+                        strcat(temp, elem_str);
+                        
+                        // Add separator if not last element
+                        if (i < right.data.array.length - 1) {
+                            strcat(temp, ", ");
+                        }
+                    }
+                    
+                    strcat(temp, "]");
+                    strncpy(right_str, temp, 255);
+                    free(temp);
                 }
                 
                 // Allocate and concatenate
@@ -1159,12 +1630,10 @@ Value evaluate_expression(ASTNode* expr) {
                     break;
                 case DIVIDE:
                     if (right_val == 0.0) {
-                        fprintf(stderr, "Error: Division by zero\n");
-                        if (use_float) {
-                            result.data.fval = 0.0;
-                        } else {
-                            result.data.ival = 0;
-                        }
+                        // Create and return an exception instead of 0
+                        result.type = VAL_EXCEPTION;
+                        result.data.exception.type = strdup("DivisionByZeroError");
+                        result.data.exception.message = strdup("Division by zero");
                     } else {
                         if (use_float) {
                             result.data.fval = left_val / right_val;
@@ -1197,6 +1666,14 @@ Value evaluate_expression(ASTNode* expr) {
                     result.type = VAL_BOOLEAN;
                     result.data.bval = left_val != right_val;
                     break;
+                case AND:
+                    result.type = VAL_BOOLEAN;
+                    result.data.bval = value_to_boolean(left) && value_to_boolean(right);
+                    break;
+                case OR:
+                    result.type = VAL_BOOLEAN;
+                    result.data.bval = value_to_boolean(left) || value_to_boolean(right);
+                    break;
                 default:
                     fprintf(stderr, "Error: Unknown binary operator\n");
                     if (use_float) {
@@ -1219,6 +1696,10 @@ Value evaluate_expression(ASTNode* expr) {
                     case MINUS:
                         result.data.fval = -operand.data.fval;
                         break;
+                    case NOT:
+                        result.type = VAL_BOOLEAN;
+                        result.data.bval = !value_to_boolean(operand);
+                        break;
                     default:
                         fprintf(stderr, "Error: Unknown unary operator\n");
                         result.data.fval = 0.0;
@@ -1232,6 +1713,10 @@ Value evaluate_expression(ASTNode* expr) {
                     case MINUS:
                         result.type = VAL_INTEGER;
                         result.data.ival = -val;
+                        break;
+                    case NOT:
+                        result.type = VAL_BOOLEAN;
+                        result.data.bval = !value_to_boolean(operand);
                         break;
                     default:
                         fprintf(stderr, "Error: Unknown unary operator\n");
@@ -1344,6 +1829,8 @@ ReturnValue interpret_block(ASTNode* block, int new_scope) {
     
     if (block->type != NODE_BLOCK) {
         fprintf(stderr, "Error: Not a block node\n");
+        ret.has_exception = 1;
+        ret.return_value = create_exception("TypeError", "Not a block node");
         return ret;
     }
     
@@ -1356,8 +1843,8 @@ ReturnValue interpret_block(ASTNode* block, int new_scope) {
     for (int i = 0; i < block->data.block.count; i++) {
         ret = interpret(block->data.block.statements[i]);
         
-        // If a return statement was executed, stop
-        if (ret.has_return) {
+        // If a return statement was executed or an exception was thrown, stop
+        if (ret.has_return || ret.has_exception) {
             break;
         }
     }
@@ -1493,7 +1980,7 @@ ReturnValue interpret(ASTNode* node) {
                 return ret;
             }
             
-            print_value(value);
+            print_value_ln(value);
             
             // Free string if needed
             if (value.type == VAL_STRING && value.data.sval) {
@@ -1646,13 +2133,159 @@ ReturnValue interpret(ASTNode* node) {
             
             break;
         }
+
+case NODE_BINARY_OP: {
+    // Special case for array assignment
+    if (node->data.binary_op.op == ASSIGN && 
+        node->data.binary_op.left->type == NODE_ARRAY_ACCESS) {
+        
+        // Get the array access node
+        ASTNode* access = node->data.binary_op.left;
+        
+        // Evaluate the array
+        Value array = evaluate_expression(access->data.array_access.array);
+        
+        // Check if array evaluation resulted in an exception
+        if (array.type == VAL_EXCEPTION) {
+            ret.has_exception = 1;
+            ret.return_value = array;
+            return ret;
+        }
+        
+        // Check if it's an array
+        if (array.type != VAL_ARRAY) {
+            free_value(array);
+            ret.has_exception = 1;
+            ret.return_value = create_exception("TypeError", "Cannot index non-array value");
+            return ret;
+        }
+        
+        // Evaluate the index
+        Value index = evaluate_expression(access->data.array_access.index);
+        
+        // Check if index evaluation resulted in an exception
+        if (index.type == VAL_EXCEPTION) {
+            free_value(array);
+            ret.has_exception = 1;
+            ret.return_value = index;
+            return ret;
+        }
+        
+        // Check if index is an integer
+        if (index.type != VAL_INTEGER) {
+            free_value(array);
+            free_value(index);
+            ret.has_exception = 1;
+            ret.return_value = create_exception("TypeError", "Array index must be an integer");
+            return ret;
+        }
+        
+        // Evaluate the right side (value to assign)
+        Value value = evaluate_expression(node->data.binary_op.right);
+        
+        // Check if value evaluation resulted in an exception
+        if (value.type == VAL_EXCEPTION) {
+            free_value(array);
+            free_value(index);
+            ret.has_exception = 1;
+            ret.return_value = value;
+            return ret;
+        }
+        
+        // Get variable name if the array is an identifier
+        if (access->data.array_access.array->type == NODE_IDENTIFIER) {
+            char* var_name = access->data.array_access.array->data.sval;
+            
+            // Get the current array value
+            Value current_array = get_variable(var_name);
+            
+            // Set the element in the array
+            int success = set_array_element(&current_array, index.data.ival, value);
+            if (!success) {
+                // Free temporary values
+                free_value(current_array);
+                free_value(array);
+                free_value(index);
+                free_value(value);
+                
+                // Create and propagate an exception
+                ret.has_exception = 1;
+                ret.return_value = create_exception("IndexError", "Array index out of bounds");
+                return ret;
+            }
+            
+            // Update the variable with the modified array
+            set_variable(var_name, current_array);
+            
+            // Free temporary values
+            free_value(current_array);
+            free_value(array);
+            free_value(index);
+            free_value(value);
+        } else {
+            // Cannot assign to a non-variable array
+            free_value(array);
+            free_value(index);
+            free_value(value);
+            ret.has_exception = 1;
+            ret.return_value = create_exception("TypeError", "Cannot assign to a non-variable array");
+            return ret;
+        }
+    } else {
+        // For other binary operations, just evaluate the expression and discard the result
+        Value result = evaluate_expression(node);
+        
+        // Check if evaluation resulted in an exception
+        if (result.type == VAL_EXCEPTION) {
+            ret.has_exception = 1;
+            ret.return_value = result;
+            return ret;
+        }
+        
+        // Free the result if needed
+        if (result.type == VAL_STRING && result.data.sval) {
+            free(result.data.sval);
+            } else if (result.type == VAL_ARRAY) {
+            free_value(result);
+            }
+        }
+        break;
+    }
+
+        default:
+            // For expression nodes that appear as statements, evaluate and discard
+            if (node->type == NODE_INTEGER || node->type == NODE_FLOAT || 
+                node->type == NODE_STRING || node->type == NODE_BOOLEAN || 
+                node->type == NODE_IDENTIFIER || node->type == NODE_UNARY_OP || 
+                node->type == NODE_BINARY_OP || node->type == NODE_ARRAY_LITERAL || 
+                node->type == NODE_ARRAY_ACCESS) {
+                
+                Value result = evaluate_expression(node);
+                
+                // Check if evaluation resulted in an exception
+                if (result.type == VAL_EXCEPTION) {
+                    ret.has_exception = 1;
+                    ret.return_value = result;
+                    return ret;
+                }
+                
+                // Free the temporary value if needed
+                if (result.type == VAL_STRING && result.data.sval) {
+                    free(result.data.sval);
+                } else if (result.type == VAL_ARRAY) {
+                    free_value(result);
+                }
+            } else {
+                fprintf(stderr, "Error: Unknown node type %d\n", node->type);
+            }
+            break;
     }
     
     return ret;
 }
 
 void yyerror(const char* s) {
-    fprintf(stderr, "Error at line %d: %s\n", line_num - 2, s);
+    fprintf(stderr, "Error at line %d: %s\n", line_num , s);
 }
 
 int main(int argc, char** argv) {
@@ -1678,7 +2311,19 @@ int main(int argc, char** argv) {
     
     // Now interpret the AST
     if (program_root) {
-        interpret(program_root);
+        ReturnValue result = interpret(program_root);
+        
+        // Check if the program ended with an uncaught exception
+        if (result.has_exception) {
+            fprintf(stderr, "Uncaught exception:\n");
+            print_value_ln(result.return_value);
+            free_value(result.return_value);
+            free_ast(program_root);
+            free_symbol_table(global_symbols);
+            fclose(input_file);
+            return 1; // Exit with error code
+        }
+        
         free_ast(program_root);
     }
     

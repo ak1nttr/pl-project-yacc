@@ -6,7 +6,6 @@
 
 extern int line_num;
 
-
 typedef enum {
     VAL_INTEGER,
     VAL_FLOAT,   
@@ -19,7 +18,7 @@ typedef struct {
     ValueType type;
     union {
         int ival;
-        double fval;  
+        double fval; 
         char* sval;
         int bval;
     } data;
@@ -57,6 +56,11 @@ NEWLINE     \n|\r|\r\n
 "finally"       { return FINALLY; }
 "throw"         { return THROW; }
 
+
+"and"           { return AND; }
+"or"            { return OR; }
+"not"           { return NOT; }
+
 "true"          { 
                   yylval.bval = 1;
                   return BOOLEAN; 
@@ -82,6 +86,8 @@ NEWLINE     \n|\r|\r\n
 ")"             { return RPAREN; }
 "{"             { return LBRACE; }
 "}"             { return RBRACE; }
+"["             { return LBRACKET; }
+"]"             { return RBRACKET; }
 ";"             { return SEMICOLON; }
 ","             { return COMMA; }
 
@@ -103,7 +109,48 @@ NEWLINE     \n|\r|\r\n
 {STRING}        { 
                   // Remove quotes from the string
                   yytext[strlen(yytext)-1] = '\0';
-                  yylval.sval = strdup(yytext+1);
+                  char* str = strdup(yytext+1);
+                  
+                  // Process escape sequences
+                  int len = strlen(str);
+                  char* processed = malloc(len + 1);
+                  int j = 0;
+                  
+                  for (int i = 0; i < len; i++) {
+                      if (str[i] == '\\' && i + 1 < len) {
+                          // Handle escape sequences
+                          switch (str[i + 1]) {
+                              case 'n':  // Newline
+                                  processed[j++] = '\n';
+                                  break;
+                              case 't':  // Tab
+                                  processed[j++] = '\t';
+                                  break;
+                              case 'r':  // Carriage return
+                                  processed[j++] = '\r';
+                                  break;
+                              case '\\': // Backslash
+                                  processed[j++] = '\\';
+                                  break;
+                              case '\"': // Double quote
+                                  processed[j++] = '\"';
+                                  break;
+                              default:   // Unknown escape sequence - keep as is
+                                  processed[j++] = '\\';
+                                  processed[j++] = str[i + 1];
+                                  break;
+                          }
+                          i++; // Skip the next character as we've already processed it
+                      } else {
+                          // Regular character
+                          processed[j++] = str[i];
+                      }
+                  }
+                  
+                  processed[j] = '\0'; // Null-terminate the processed string
+                  free(str);           // Free the orig string
+                  
+                  yylval.sval = processed;
                   return STRING; 
                 }
 
