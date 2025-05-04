@@ -1,0 +1,95 @@
+<program> => <statement_list>
+
+<statement_list> => <statement> | <statement_list> <statement>
+
+<statement> => <declaration> ";" 
+              | <assignment> ";"
+              | <if_statement>
+              | <while_statement>
+              | <print_statement> ";"
+              | <function_definition>
+              | <function_call> ";"
+              | <return_statement> ";"
+              | <try_statement>
+              | <throw_statement> ";"
+              | <block>
+
+<block> => "{" <statement_list> "}"
+
+<declaration> => "var" <identifier> "=" <expression>
+
+<assignment> => <identifier> "=" <expression>
+               | <array_access> "=" <expression>
+
+<array_access> => <factor> "[" <expression> "]"
+
+<if_statement> => "if" "(" <expression> ")" <block> 
+                | "if" "(" <expression> ")" <block> "else" <block>
+
+<while_statement> => "while" "(" <expression> ")" <block>
+
+<print_statement> => "print" "(" <expression> ")"
+
+<function_definition> => "function" <identifier> "(" [<parameter_list>] ")" <block>
+
+<parameter_list> => <identifier> | <parameter_list> "," <identifier>
+
+<function_call> => <identifier> "(" [<argument_list>] ")"
+
+<argument_list> => <expression> | <argument_list> "," <expression>
+
+<return_statement> => "return" <expression>
+
+<try_statement> => "try" <block> <catch_block>
+                  | "try" <block> <catch_block> <finally_block>
+
+<catch_block> => "catch" "(" <identifier> ")" <block>
+
+<finally_block> => "finally" <block>
+
+<throw_statement> => "throw" <expression>
+
+<expression> => <term>
+              | <expression> "+" <term>
+              | <expression> "-" <term>
+              | <expression> "<" <term>
+              | <expression> "<=" <term>
+              | <expression> ">" <term>
+              | <expression> ">=" <term>
+              | <expression> "==" <term>
+              | <expression> "!=" <term>
+
+<term> => <factor>
+        | <term> "*" <factor>
+        | <term> "/" <factor>
+
+<factor> => <identifier>
+          | <integer>
+          | <float>
+          | <string>
+          | <boolean>
+          | "(" <expression> ")"
+          | "-" <factor>
+          | <function_call>
+          | <array_literal>
+          | <array_access>
+
+<array_literal> => "[" "]"
+                 | "[" <array_element_list> "]"
+
+<array_element_list> => <expression>
+                      | <array_element_list> "," <expression>
+
+<integer> => <digit>+
+
+<float> => <digit>+.<digit>* | <digit>*.<digit>+
+
+<string> => "\"" <text> "\""
+
+<boolean> => "true" | "false"
+
+<identifier> => <letter> (<letter> | <digit> | "_")*
+
+<letter> => [a-zA-Z]
+
+<digit> => [0-9]
