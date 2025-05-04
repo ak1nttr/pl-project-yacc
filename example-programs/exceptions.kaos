@@ -1,0 +1,125 @@
+# Exception handling examples
+
+# Function that throws based on input
+function checkPositive(n) {
+    if (n < 0) {
+        throw "Negative number not allowed: " + n;
+    }
+    return n;
+}
+
+# Try-catch for negative number
+function safeCheck(n) {
+    try {
+        return checkPositive(n);
+    } catch (err) {
+        print("Caught in safeCheck: " + err);
+        return 0;
+    }
+}
+
+# Function with finally 
+function finallyDemo(n) {
+    try {
+        print("Trying to check: " + n);
+        checkPositive(n);
+    } catch (e) {
+        print("do nothing!");
+    } finally {
+        print("Cleanup after checkPositive, regardless of error.");
+    }
+    return n;
+}
+
+# Function with multiple throws
+function riskyCalculation(x, y) {
+    if (x == 0) {
+        throw "x cannot be zero";
+    }
+    if (y == 0) {
+        throw "y cannot be zero";
+    }
+    return x / y;
+}
+
+# Function to safely run riskyCalculation
+function safeCalc(x, y) {
+    try {
+        return riskyCalculation(x, y);
+    } catch (e) {
+        print("Caught in safeCalc: " + e);
+        return -1;
+    }
+}
+
+# Function demonstrating exception bubbling
+function level3(val) {
+    if (val == "fail") {
+        throw "Level 3 failure!";
+    }
+    return "Level 3 success";
+}
+
+function level2(val) {
+    return level3(val);
+}
+
+function level1(val) {
+    try {
+        return level2(val);
+    } catch (e) {
+        print("Caught at level1: " + e);
+        return "Recovered";
+    }
+}
+
+# Main program
+print("Starting exceptions2.kaos");
+
+print("Example 1: Checking for negative number");
+print("Check 5: " + safeCheck(5));
+print("Check -2: " + safeCheck(-2));
+
+print("\nExample 2: Finally block always runs");
+finallyDemo(3);
+finallyDemo(-5);
+
+print("\nExample 3: Multiple conditions that throw");
+print("safeCalc(10, 2): " + safeCalc(10, 2));
+print("safeCalc(0, 2): " + safeCalc(0, 2));
+print("safeCalc(5, 0): " + safeCalc(5, 0));
+
+print("\nExample 4: Propagating exceptions across functions");
+print("level1('ok'): " + level1("ok"));
+print("level1('fail'): " + level1("fail"));
+
+print("\nExample 5: Throwing from catch again");
+try {
+    try {
+        throw "Original error";
+    } catch (err) {
+        print("Caught: " + err);
+        throw "Re-throwing after handling";
+    }
+} catch (e2) {
+    print("Caught again: " + e2);
+}
+
+print("\nExample 6: Throwing numbers, booleans, and arrays");
+try {
+    throw 404;
+} catch (e) {
+    print("Caught number: " + e);
+}
+
+try {
+    throw true;
+} catch (e) {
+    print("Caught boolean: " + e);
+}
+
+try {
+    throw ["unexpected", "array", "error"];
+} catch (e) {
+    print("Caught array: " + e);
+}

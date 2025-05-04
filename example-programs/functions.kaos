@@ -1,0 +1,105 @@
+# Function examples 
+
+# Function to add two numbers
+function add(a, b) {
+    return a + b;
+}
+
+# Function to find the maximum of two numbers
+function max(a, b) {
+    if (a > b) {
+        return a;
+    } else {
+        return b;
+    }
+}
+
+# Function to generate a greeting with default-like behavior
+function greetUser(name) {
+    if (name == "") {
+        return "Hello, guest!";
+    } else {
+        return "Hello, " + name + "!";
+    }
+}
+
+# Function to repeat a string n times
+function repeat(str, n) {
+    var result = "";
+    var i = 0;
+    while (i < n) {
+        result = result + str;
+        i = i + 1;
+    }
+    return result;
+}
+
+# Recursive function to compute nth Fibonacci number
+function fibonacci(n) {
+    if (n <= 1) {
+        return n;
+    } else {
+        return fibonacci(n - 1) + fibonacci(n - 2);
+    }
+}
+
+# Function returning an array of multiples of a number
+function generateMultiples(base, count) {
+    var result = [];
+    var i = 0;
+    while (i < count) {
+        result[i] = base * (i + 1);
+        i = i + 1;
+    }
+    return result;
+}
+
+# Function that uses another function internally
+function describeMultiples(base, count) {
+    var list = generateMultiples(base, count);
+    return "First " + count + " multiples of " + base + ": " + list;
+}
+
+# Function with conditional return
+function isPositive(n) {
+    if (n > 0) {
+        return true;
+    } else {
+        return false;
+    }
+}
+
+# Function that returns nothing but prints something
+function logMessage(message) {
+    print("LOG: " + message);
+}
+
+# Main program
+var sum = add(7, 3);
+print("Sum of 7 and 3: " + sum);
+
+var bigger = max(12, 9);
+print("Max of 12 and 9: " + bigger);
+
+var greeting1 = greetUser("Charlie");
+print(greeting1);
+
+var greeting2 = greetUser("");
+print(greeting2);
+
+var repeated = repeat("kaos ", 3);
+print("Repeated string: " + repeated);
+
+var fib5 = fibonacci(5);
+print("Fibonacci of 5: " + fib5);
+
+var multiples = generateMultiples(4, 5);
+print("Multiples of 4: " + multiples);
+
+var description = describeMultiples(3, 4);
+print(description);
+
+print("Is 10 positive? " + isPositive(10));
+print("Is -3 positive? " + isPositive(-3));
+
+logMessage("This is a test message.");

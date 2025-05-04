@@ -180,7 +180,7 @@ KAOS is great for learning but still powerful enough for real programming.
 
 ```bash
 make
-./myprog example.kaos
+./kaos example.kaos
 ```
 
 ## Language Grammar Reference
