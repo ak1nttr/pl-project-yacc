@@ -1,0 +1,16 @@
+# This program demonstrates caught and uncaught exceptions
+
+var a = 123;
+var b = 0;
+
+try {
+    var result = a / b;
+    print(result);
+} catch (e) {
+    print("error caught during execution: "+e);
+} 
+
+# this line will throw an exception and stop the program flow 
+print(a/b);
+
+print("unreachable line");

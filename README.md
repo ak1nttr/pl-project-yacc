@@ -19,10 +19,10 @@ We wrote the formal grammar in BNF.txt. It explains:
 
 The grammar helps us make sure our compiler works correctly.
 
-## Syntax
+
+# Syntax 
 
 ### Dynamic Typing
-We switched to dynamic typing in this version. You don't need to specify variable types anymore:
 
 ```kaos
 var age = 23;
@@ -35,30 +35,20 @@ age = 24;
 ```
 
 ### Operators
-- Math stuff: `+`, `-`, `*`, `/`
+- Mathematical operators: `+`, `-`, `*`, `/`
 - Comparisons: `==`, `!=`, `<`, `<=`, `>`, `>=`
-- Negation: `-`
+- Logical: `and` , `or`, `not`
 
 ### Control Structures
 
 #### If-Else Statements
-Previous if else statement:
 
-```kaos
-if x > 10 {
-    print("x is greater than 10");
-} elif x == 10 {
-    print("x is exactly 10");
-} else {
-    print("x is less than 10");
-}
-```
-The current if else statement:
 ```kaos
 if (x > 10) {
     print("x is greater than 10");
 } else {
     print("x is less than or equal to 10");
+}
     
 // Using logical operators
 if (x > 5 and x < 15) {
@@ -68,9 +58,9 @@ if (x > 5 and x < 15) {
 if (x < 0 or x > 100) {
     print("x is out of range");
 }
-}
+
 ```
-We don't use elif anymore
+
 
 #### While Loops
 ```kaos
@@ -81,6 +71,7 @@ while (age < 18) {
 ```
 
 ### Functions
+#### functions do not require an explicit return type
 ```kaos
 function add(x, y) {
     return x + y;
@@ -143,27 +134,31 @@ print("The sum is: " + sum);
 
 ### 1. Dynamic Typing
 - No more type declarations
-- Variables just take whatever type you give them
+- Variables get their types implicitly
 
 ### 2. Arrays
 - Added arrays with `[]` syntax
 - You can access elements with `array[index]`
 - You can change elements with `array[index] = value`
+- Our arrays are dynamic and can hold mixed type of values
 
 ### 3. Exception Handling
 - Added `try`, `catch`, and `finally` blocks
 - You can `throw` errors when something goes wrong
 - Makes error handling much easier
 
-### 4. Grammar Changes
-- Cleaned up some rules
-- Made expressions simpler
-- Better block structure
+### 4. Boolean Type Coercion
+- Every type has a boolean counterpart
+- For example: 
+    - Empty arrays evaluate to false
+    - Non-empty arrays evaluate to true
+- This makes conditional expressions more flexible and intuitive
 
-### 5. Removed Stuff
-- Got rid of type declarations
-- Removed constants (`const`)
-- Removed the input statement
+### 5. Other Changes
+- if statements now have parantheses
+- "&&", "||", "!" are removed, now we only have "and" , "or" , "not" 
+- const keyword is removed
+- other small changes made to make language simpler
 
 ## Design Decisions
 
@@ -172,7 +167,7 @@ We built KAOS with these goals:
 1. **Keep it simple**: Easy to learn and use
 2. **Dynamic typing**: Less fussy about types
 3. **Clean blocks**: Curly braces keep code organized
-4. **Arrays**: You need lists of things in any real program
+4. **Arrays**: Arrays are dynamic out of the gate
 5. **Error handling**: Programs crash less with good exception handling
 6. **Readability**: Code should be easy to understand
 
@@ -190,7 +185,7 @@ make
 
 ## Language Grammar Reference
 
-Check BNF.txt for the complete grammar if you're into that kind of thing.
+Check BNF.txt for the complete grammar.
 
 ## Example Program
 
