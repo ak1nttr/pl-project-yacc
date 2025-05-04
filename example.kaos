@@ -1,0 +1,157 @@
+# General example file that combines multiple features
+
+# Boolean type coercion
+var rate = 8; 
+function checkRate(rate) {
+    if (rate) {
+        print("this rate is valid");
+    } else {
+        print("this rate is not valid");
+    }
+}
+checkRate(rate);
+rate = 0;
+checkRate(rate);
+
+# a function to create and manipulate an array
+function process_array(size) {
+    var arr = [];
+    var i = 0;
+    
+    # Fill the array
+    while (i < size) {
+        arr[i] = i * i;
+        i = i + 1;
+    }
+    
+    return arr;
+}
+
+# Function to safely get array element
+function safe_get(arr, index) {
+    try {
+        if (index < 0) {
+            throw "Index cannot be negative";
+        }
+        return arr[index];
+    } catch (err) {
+        print("Error accessing array: " + err);
+        return -1;
+    }
+}
+
+var my_array = process_array(5);
+print("Generated array: " + my_array);
+
+# Try different indices
+print("Element 2: " + safe_get(my_array, 2));
+print("Element -1: " + safe_get(my_array, -1));
+
+# Complex calculation with error handling
+function complex_calc(x, y) {
+    try {
+        var result = 0;
+        if (y == 0) {
+            throw "Division by zero";
+        }
+        result = (x * x) / y;
+        return result;
+    } catch (calc_err) {
+        print("Calculation error: " + calc_err);
+        return -1;
+    } finally {
+        print("Calculation attempted with x=" + x + ", y=" + y);
+    }
+}
+
+var val1 = complex_calc(10, 2);
+var val2 = complex_calc(10, 0);
+
+print("Final results: " + [val1, val2]);
+
+
+# ARRAYS
+
+# Array creation and manipulation
+var numbers = [1, 2, 3, 4, 5];
+print("Original array: " + numbers);
+
+# Accessing array elements
+var third_element = numbers[2];  # Remember zero-based indexing
+print("Third element: " + third_element);
+
+# Modifying array elements
+numbers[0] = 10;
+print("Modified array: " + numbers);
+
+# Empty array
+var empty_array = [];
+print("Empty array: " + empty_array);
+
+# Nested arrays
+var matrix = [[1, 2, 3], [4, 5, 6], [7, 8, 9]];
+print("Matrix: " + matrix);
+print("Matrix[1][2]: " + matrix[1][2]);  # Should print 6
+
+# Mixed type arrays
+var mixed = [1, "two", 3.14, true];
+print("Mixed types: " + mixed);
+
+# Array iteration
+var i = 0;
+while (i < 5) {
+    print("Element " + i + ": " + numbers[i]);
+    i = i + 1;
+}
+
+# EXCEPTIONS
+
+# Basic try-catch
+try {
+    print("Try block executing");
+    throw "Basic error";
+    print("This won't be printed");
+} catch (err) {
+    print("Caught error: " + err);
+}
+
+# Try-catch with finally
+try {
+    print("Attempting division");
+    var result = 10 / 0;  # Should cause an exception
+} catch (divide_error) {
+    print("Division error: " + divide_error);
+} finally {
+    print("Finally block always executes");
+}
+
+# Nested try-catch blocks
+try {
+    print("Outer try block");
+    try {
+        print("Inner try block");
+        throw "Inner exception";
+    } catch (inner_err) {
+        print("Inner catch: " + inner_err);
+        throw "Rethrown exception";  # This will be caught by outer catch
+    }
+} catch (outer_err) {
+    print("Outer catch: " + outer_err);
+}
+
+# functions with exceptions
+function might_throw(should_throw) {
+    if (should_throw) {
+        throw "Function threw an exception";
+    }
+    return "Function completed successfully";
+}
+
+try {
+    var result1 = might_throw(false);
+    print(result1);
+    var result2 = might_throw(true);
+    print("This won't be printed");
+} catch (func_err) {
+    print("Caught function error: " + func_err);
+}
