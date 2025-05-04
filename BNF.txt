@@ -49,15 +49,28 @@
 
 <throw_statement> => "throw" <expression>
 
-<expression> => <term>
-              | <expression> "+" <term>
-              | <expression> "-" <term>
-              | <expression> "<" <term>
-              | <expression> "<=" <term>
-              | <expression> ">" <term>
-              | <expression> ">=" <term>
-              | <expression> "==" <term>
-              | <expression> "!=" <term>
+<expression> => <or_expr>
+
+<or_expr> => <and_expr>
+          | <or_expr> "or" <and_expr>
+
+<and_expr> => <not_expr>
+           | <and_expr> "and" <not_expr>
+
+<not_expr> => <comparison>
+           | "not" <not_expr>
+
+<comparison> => <arithmetic>
+              | <comparison> "<" <arithmetic>
+              | <comparison> "<=" <arithmetic>
+              | <comparison> ">" <arithmetic>
+              | <comparison> ">=" <arithmetic>
+              | <comparison> "==" <arithmetic>
+              | <comparison> "!=" <arithmetic>
+
+<arithmetic> => <term>
+              | <arithmetic> "+" <term>
+              | <arithmetic> "-" <term>
 
 <term> => <factor>
         | <term> "*" <factor>
@@ -93,3 +106,7 @@
 <letter> => [a-zA-Z]
 
 <digit> => [0-9]
+
+<text> => (<letter> | <digit> | <special_char>)*
+
+<special_char> => "^" | "&" | "*" | "(" | ")" | "-" | "_" | "=" | "+" | "[" | "]" | "{" | "}" | ";" | ":" | "'" | "," | "." | "<" | ">" | "/" | "?" | "\\" | "|"
