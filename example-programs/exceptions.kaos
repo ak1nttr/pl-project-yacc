@@ -73,8 +73,6 @@ function level1(val) {
     }
 }
 
-# Main program
-print("Starting exceptions2.kaos");
 
 print("Example 1: Checking for negative number");
 print("Check 5: " + safeCheck(5));
@@ -118,8 +116,3 @@ try {
     print("Caught boolean: " + e);
 }
 
-try {
-    throw ["unexpected", "array", "error"];
-} catch (e) {
-    print("Caught array: " + e);
-}
