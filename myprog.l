@@ -50,6 +50,12 @@ NEWLINE     \n|\r|\r\n
 "else"          { return ELSE; }
 "while"         { return WHILE; }
 "print"         { return PRINT; }
+"function"      { return FUNCTION; }
+"return"        { return RETURN; }
+"try"           { return TRY; }
+"catch"         { return CATCH; }
+"finally"       { return FINALLY; }
+"throw"         { return THROW; }
 
 "true"          { 
                   yylval.bval = 1;
@@ -77,6 +83,7 @@ NEWLINE     \n|\r|\r\n
 "{"             { return LBRACE; }
 "}"             { return RBRACE; }
 ";"             { return SEMICOLON; }
+","             { return COMMA; }
 
 {ID}            { 
                   yylval.sval = strdup(yytext);

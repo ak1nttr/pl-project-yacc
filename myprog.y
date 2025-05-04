@@ -12,9 +12,11 @@ int line_num = 1;
 // Value types for runtime evaluation
 typedef enum {
     VAL_INTEGER,
-    VAL_FLOAT,  
+    VAL_FLOAT,
     VAL_STRING,
-    VAL_BOOLEAN
+    VAL_BOOLEAN,
+    VAL_FUNCTION,  
+    VAL_EXCEPTION 
 } ValueType;
 
 // Value structure for runtime evaluation
@@ -22,11 +24,26 @@ typedef struct {
     ValueType type;
     union {
         int ival;
-        double fval;  
+        double fval;
         char* sval;
         int bval;
+        struct {
+            struct ASTNode* func_def;  
+            char* name;               
+        } func;
+        struct {
+            char* message;            
+            char* type;                
+        } exception;
     } data;
 } Value;
+
+// For returning from functions and exception handling
+typedef struct {
+    int has_return;      // Flag to indicate if return occurred
+    int has_exception;   // Flag to indicate if exception was thrown
+    Value return_value;  // Value returned or exception object
+} ReturnValue;
 
 // Symbol table structure
 typedef struct {
@@ -34,15 +51,24 @@ typedef struct {
     Value value;
 } Symbol;
 
-// Symbol table globals
-#define MAX_SYMBOLS 100
-Symbol symbol_table[MAX_SYMBOLS];
-int symbol_count = 0;
+// Symbol table for current scope
+typedef struct SymbolTable {
+    Symbol* symbols;
+    int count;
+    int capacity;
+    struct SymbolTable* parent;  // For nested scopes
+} SymbolTable;
+
+// Global symbol table
+SymbolTable* global_symbols;
+
+// Current symbol table (for current scope)
+SymbolTable* current_symbols;
 
 // AST node types
 typedef enum {
     NODE_INTEGER,
-    NODE_FLOAT,   
+    NODE_FLOAT,
     NODE_STRING,
     NODE_BOOLEAN,
     NODE_IDENTIFIER,
@@ -53,7 +79,12 @@ typedef enum {
     NODE_IF,
     NODE_WHILE,
     NODE_PRINT,
-    NODE_BLOCK
+    NODE_BLOCK,
+    NODE_FUNCTION_DEF,
+    NODE_FUNCTION_CALL,
+    NODE_RETURN, 
+    NODE_TRY_CATCH,
+    NODE_THROW
 } NodeType;
 
 // AST node structure
@@ -106,12 +137,40 @@ typedef struct ASTNode {
             int count;
             int capacity;
         } block;
+        
+        struct {                   // For function definitions
+            char* name;            // Function name
+            char** parameters;     // Array of parameter names
+            int param_count;       // Number of parameters
+            struct ASTNode* body;  // Function body
+        } func_def;
+        
+        struct {                   // For function calls
+            char* name;            // Function name
+            struct ASTNode** arguments; // Array of argument expressions
+            int arg_count;         // Number of arguments
+        } func_call;
+        
+        struct {                   // For return statements
+            struct ASTNode* expr;  // Expression to return
+        } return_stmt;
+        
+        struct {                   // For try-catch-finally statements
+            struct ASTNode* try_block;    // Try block
+            struct ASTNode* catch_block;  // Catch block
+            char* exception_var;          // Exception variable name
+            struct ASTNode* finally_block; // Finally block (can be NULL)
+        } try_catch;
+        
+        struct {                   // For throw statements
+            struct ASTNode* expr;  // Exception expression to throw
+        } throw_stmt;
     } data;
 } ASTNode;
 
 // Forward declarations for AST functions
 ASTNode* create_integer_node(int value);
-ASTNode* create_float_node(double value); 
+ASTNode* create_float_node(double value);
 ASTNode* create_string_node(char* value);
 ASTNode* create_boolean_node(int value);
 ASTNode* create_identifier_node(char* name);
@@ -123,17 +182,37 @@ ASTNode* create_if_node(ASTNode* condition, ASTNode* if_branch, ASTNode* else_br
 ASTNode* create_while_node(ASTNode* condition, ASTNode* body);
 ASTNode* create_print_node(ASTNode* expr);
 ASTNode* create_block_node();
+ASTNode* create_function_def_node(char* name, char** parameters, int param_count, ASTNode* body);
+ASTNode* create_function_call_node(char* name);
+ASTNode* create_return_node(ASTNode* expr);
+ASTNode* create_try_catch_node(ASTNode* try_block, ASTNode* catch_block, char* exception_var, ASTNode* finally_block);
+ASTNode* create_throw_node(ASTNode* expr);
 void add_statement_to_block(ASTNode* block, ASTNode* statement);
+void add_parameter_to_function(ASTNode* func_def, char* param);
+void add_argument_to_function_call(ASTNode* func_call, ASTNode* arg);
 void free_ast(ASTNode* node);
-Value evaluate_expression(ASTNode* expr);
-void interpret(ASTNode* node);
-int add_symbol(char* name, Value value);
+
+// Symbol table functions
+SymbolTable* create_symbol_table();
+void free_symbol_table(SymbolTable* table);
+int add_symbol(SymbolTable* table, char* name, Value value);
+int find_symbol_in_table(SymbolTable* table, char* name);
 int find_symbol(char* name);
 void declare_variable(char* name, Value value);
 void set_variable(char* name, Value value);
 Value get_variable(char* name);
+void push_scope();
+void pop_scope();
+
+// Evaluation functions
+Value evaluate_expression(ASTNode* expr);
+ReturnValue interpret(ASTNode* node);
+ReturnValue interpret_block(ASTNode* block, int new_scope);
+ReturnValue call_function(ASTNode* func_def, ASTNode** arguments, int arg_count);
 void print_value(Value val);
 int value_to_boolean(Value val);
+Value copy_value(Value val);
+void free_value(Value val);
 
 // Root node of the AST
 ASTNode* program_root = NULL;
@@ -141,28 +220,40 @@ ASTNode* program_root = NULL;
 
 %union {
     int ival;
-    double fval;   
+    double fval;
     char* sval;
     int bval;
     struct ASTNode* node;
+    struct {
+        char** parameters;
+        int count;
+    } param_list;
+    struct {
+        struct ASTNode** arguments;
+        int count;
+    } arg_list;
 }
 
 /* Token definitions */
-%token VAR IF ELSE WHILE PRINT
+%token VAR IF ELSE WHILE PRINT FUNCTION RETURN
+%token TRY CATCH FINALLY THROW
 %token PLUS MINUS MULTIPLY DIVIDE
 %token ASSIGN
 %token EQUAL NOT_EQUAL LESS_THAN LESS_EQUAL GREATER_THAN GREATER_EQUAL
-%token LPAREN RPAREN LBRACE RBRACE SEMICOLON
+%token LPAREN RPAREN LBRACE RBRACE SEMICOLON COMMA
 
 %token <ival> INTEGER
-%token <fval> FLOAT 
+%token <fval> FLOAT
 %token <sval> STRING IDENTIFIER
 %token <bval> BOOLEAN
 
 /* Define types for non-terminals */
 %type <node> program statement_list statement
 %type <node> declaration assignment if_statement while_statement print_statement
-%type <node> expression term factor block
+%type <node> expression term factor block function_definition function_call return_statement
+%type <node> try_statement catch_block finally_block throw_statement
+%type <param_list> parameter_list optional_parameter_list
+%type <arg_list> argument_list optional_argument_list
 
 /* Define operator precedence */
 %left EQUAL NOT_EQUAL
@@ -196,6 +287,11 @@ statement:
     | if_statement { $$ = $1; }
     | while_statement { $$ = $1; }
     | print_statement SEMICOLON { $$ = $1; }
+    | function_definition { $$ = $1; }
+    | function_call SEMICOLON { $$ = $1; }
+    | return_statement SEMICOLON { $$ = $1; }
+    | try_statement { $$ = $1; }
+    | throw_statement SEMICOLON { $$ = $1; }
     | block { $$ = $1; }
     ;
 
@@ -237,6 +333,112 @@ while_statement:
 print_statement:
     PRINT LPAREN expression RPAREN {
         $$ = create_print_node($3);
+    }
+    ;
+
+function_definition:
+    FUNCTION IDENTIFIER LPAREN optional_parameter_list RPAREN block {
+        $$ = create_function_def_node($2, $4.parameters, $4.count, $6);
+        free($2); // Free the identifier string
+    }
+    ;
+
+optional_parameter_list:
+    /* empty */ {
+        $$.parameters = NULL;
+        $$.count = 0;
+    }
+    | parameter_list {
+        $$ = $1;
+    }
+    ;
+
+parameter_list:
+    IDENTIFIER {
+        $$.parameters = malloc(sizeof(char*));
+        $$.parameters[0] = $1;
+        $$.count = 1;
+    }
+    | parameter_list COMMA IDENTIFIER {
+        $$ = $1;
+        $$.parameters = realloc($$.parameters, sizeof(char*) * ($$.count + 1));
+        $$.parameters[$$.count] = $3;
+        $$.count++;
+    }
+    ;
+
+function_call:
+    IDENTIFIER LPAREN optional_argument_list RPAREN {
+        $$ = create_function_call_node($1);
+        free($1); // Free the identifier string
+        
+        // Add all arguments to the function call
+        for (int i = 0; i < $3.count; i++) {
+            add_argument_to_function_call($$, $3.arguments[i]);
+        }
+        
+        // Free the argument list array (not the arguments themselves)
+        if ($3.arguments) free($3.arguments);
+    }
+    ;
+
+optional_argument_list:
+    /* empty */ {
+        $$.arguments = NULL;
+        $$.count = 0;
+    }
+    | argument_list {
+        $$ = $1;
+    }
+    ;
+
+argument_list:
+    expression {
+        $$.arguments = malloc(sizeof(ASTNode*));
+        $$.arguments[0] = $1;
+        $$.count = 1;
+    }
+    | argument_list COMMA expression {
+        $$ = $1;
+        $$.arguments = realloc($$.arguments, sizeof(ASTNode*) * ($$.count + 1));
+        $$.arguments[$$.count] = $3;
+        $$.count++;
+    }
+    ;
+
+return_statement:
+    RETURN expression {
+        $$ = create_return_node($2);
+    }
+    ;
+
+try_statement:
+    TRY block catch_block {
+        $$ = create_try_catch_node($2, $3, ((ASTNode*)$3)->data.try_catch.exception_var, NULL);
+    }
+    | TRY block catch_block finally_block {
+        $$ = create_try_catch_node($2, $3, ((ASTNode*)$3)->data.try_catch.exception_var, $4);
+    }
+    ;
+
+catch_block:
+    CATCH LPAREN IDENTIFIER RPAREN block {
+        // We temporarily store the exception variable name in the catch block node
+        // It will be moved to the try-catch node when we create it
+        $$ = create_try_catch_node($5, NULL, $3, NULL);
+        free($3); // Free the identifier string
+    }
+    ;
+
+finally_block:
+    FINALLY block {
+        $$ = $2;
+    }
+    ;
+
+throw_statement:
+    THROW expression {
+        $$ = create_throw_node($2);
     }
     ;
 
@@ -287,7 +489,7 @@ factor:
         $$ = create_integer_node($1);
     }
     | FLOAT { 
-        $$ = create_float_node($1); 
+        $$ = create_float_node($1);
     }
     | STRING { 
         $$ = create_string_node($1);
@@ -301,6 +503,9 @@ factor:
     }
     | MINUS factor %prec UMINUS {
         $$ = create_unary_op_node(MINUS, $2);
+    }
+    | function_call {
+        $$ = $1;
     }
     ;
 
@@ -408,6 +613,49 @@ ASTNode* create_block_node() {
     return node;
 }
 
+ASTNode* create_function_def_node(char* name, char** parameters, int param_count, ASTNode* body) {
+    ASTNode* node = malloc(sizeof(ASTNode));
+    node->type = NODE_FUNCTION_DEF;
+    node->data.func_def.name = strdup(name);
+    node->data.func_def.parameters = parameters;
+    node->data.func_def.param_count = param_count;
+    node->data.func_def.body = body;
+    return node;
+}
+
+ASTNode* create_function_call_node(char* name) {
+    ASTNode* node = malloc(sizeof(ASTNode));
+    node->type = NODE_FUNCTION_CALL;
+    node->data.func_call.name = strdup(name);
+    node->data.func_call.arguments = malloc(sizeof(ASTNode*) * 10); // Initial capacity
+    node->data.func_call.arg_count = 0;
+    return node;
+}
+
+ASTNode* create_return_node(ASTNode* expr) {
+    ASTNode* node = malloc(sizeof(ASTNode));
+    node->type = NODE_RETURN;
+    node->data.return_stmt.expr = expr;
+    return node;
+}
+
+ASTNode* create_try_catch_node(ASTNode* try_block, ASTNode* catch_block, char* exception_var, ASTNode* finally_block) {
+    ASTNode* node = malloc(sizeof(ASTNode));
+    node->type = NODE_TRY_CATCH;
+    node->data.try_catch.try_block = try_block;
+    node->data.try_catch.catch_block = catch_block;
+    node->data.try_catch.exception_var = exception_var ? strdup(exception_var) : NULL;
+    node->data.try_catch.finally_block = finally_block;
+    return node;
+}
+
+ASTNode* create_throw_node(ASTNode* expr) {
+    ASTNode* node = malloc(sizeof(ASTNode));
+    node->type = NODE_THROW;
+    node->data.throw_stmt.expr = expr;
+    return node;
+}
+
 void add_statement_to_block(ASTNode* block, ASTNode* statement) {
     if (block->type != NODE_BLOCK) {
         fprintf(stderr, "Error: Not a block node\n");
@@ -424,6 +672,15 @@ void add_statement_to_block(ASTNode* block, ASTNode* statement) {
     }
     
     block->data.block.statements[block->data.block.count++] = statement;
+}
+
+void add_argument_to_function_call(ASTNode* func_call, ASTNode* arg) {
+    if (func_call->type != NODE_FUNCTION_CALL) {
+        fprintf(stderr, "Error: Not a function call node\n");
+        return;
+    }
+    
+    func_call->data.func_call.arguments[func_call->data.func_call.arg_count++] = arg;
 }
 
 // Memory management
@@ -479,6 +736,42 @@ void free_ast(ASTNode* node) {
             free(node->data.block.statements);
             break;
             
+        case NODE_FUNCTION_DEF:
+            free(node->data.func_def.name);
+            for (int i = 0; i < node->data.func_def.param_count; i++) {
+                free(node->data.func_def.parameters[i]);
+            }
+            if (node->data.func_def.parameters) free(node->data.func_def.parameters);
+            free_ast(node->data.func_def.body);
+            break;
+            
+        case NODE_FUNCTION_CALL:
+            free(node->data.func_call.name);
+            for (int i = 0; i < node->data.func_call.arg_count; i++) {
+                free_ast(node->data.func_call.arguments[i]);
+            }
+            free(node->data.func_call.arguments);
+            break;
+            
+        case NODE_RETURN:
+            free_ast(node->data.return_stmt.expr);
+            break;
+        
+        case NODE_TRY_CATCH:
+            free_ast(node->data.try_catch.try_block);
+            free_ast(node->data.try_catch.catch_block);
+            if (node->data.try_catch.finally_block) {
+                free_ast(node->data.try_catch.finally_block);
+            }
+            if (node->data.try_catch.exception_var) {
+                free(node->data.try_catch.exception_var);
+            }
+            break;
+            
+        case NODE_THROW:
+            free_ast(node->data.throw_stmt.expr);
+            break;
+            
         default:
             break; // No memory to free for other types (INTEGER, FLOAT, BOOLEAN)
     }
@@ -492,53 +785,221 @@ int value_to_boolean(Value val) {
         case VAL_INTEGER:
             return val.data.ival != 0;
         case VAL_FLOAT:
-            return val.data.fval != 0.0; 
+            return val.data.fval != 0.0;
         case VAL_STRING:
             return val.data.sval != NULL && strlen(val.data.sval) > 0;
         case VAL_BOOLEAN:
             return val.data.bval;
+        case VAL_FUNCTION:
+            return 1;  // Functions are always "truthy"
     }
     return 0;
 }
 
 // Symbol table functions
-int add_symbol(char* name, Value value) {
-    if (symbol_count >= MAX_SYMBOLS) {
-        fprintf(stderr, "Symbol table full\n");
-        return -1;
+SymbolTable* create_symbol_table() {
+    SymbolTable* table = malloc(sizeof(SymbolTable));
+    table->symbols = malloc(sizeof(Symbol) * 10); // Initial capacity
+    table->count = 0;
+    table->capacity = 10;
+    table->parent = NULL;
+    return table;
+}
+
+void free_symbol_table(SymbolTable* table) {
+    if (!table) return;
+    
+    for (int i = 0; i < table->count; i++) {
+        free(table->symbols[i].name);
+        free_value(table->symbols[i].value);
     }
     
-    int index = find_symbol(name);
-    if (index != -1) {
-        // Free old string if needed
-        if (symbol_table[index].value.type == VAL_STRING && symbol_table[index].value.data.sval) {
-            free(symbol_table[index].value.data.sval);
+    free(table->symbols);
+    free(table);
+}
+
+// Free a value (especially strings)
+void free_value(Value val) {
+    if (val.type == VAL_STRING && val.data.sval) {
+        free(val.data.sval);
+    } else if (val.type == VAL_FUNCTION && val.data.func.name) {
+        free(val.data.func.name);
+    } else if (val.type == VAL_EXCEPTION) {
+        if (val.data.exception.message) {
+            free(val.data.exception.message);
         }
-        
-        // Update value
-        symbol_table[index].value = value;
-        return index;
+        if (val.data.exception.type) {
+            free(val.data.exception.type);
+        }
+    }
+}
+
+// Deep copy a value (for assignment, etc.)
+Value copy_value(Value val) {
+    Value copy = val;
+    
+    if (val.type == VAL_STRING && val.data.sval) {
+        copy.data.sval = strdup(val.data.sval);
+    } else if (val.type == VAL_FUNCTION && val.data.func.name) {
+        copy.data.func.name = strdup(val.data.func.name);
+        copy.data.func.func_def = val.data.func.func_def;
+    } else if (val.type == VAL_EXCEPTION) {
+        if (val.data.exception.message) {
+            copy.data.exception.message = strdup(val.data.exception.message);
+        }
+        if (val.data.exception.type) {
+            copy.data.exception.type = strdup(val.data.exception.type);
+        }
+    }
+    
+    return copy;
+}
+
+// Create an exception value
+Value create_exception(const char* type, const char* message) {
+    Value exception;
+    exception.type = VAL_EXCEPTION;
+    exception.data.exception.type = strdup(type);
+    exception.data.exception.message = strdup(message);
+    return exception;
+}
+
+int add_symbol(SymbolTable* table, char* name, Value value) {
+    if (table->count >= table->capacity) {
+        table->capacity *= 2;
+        table->symbols = realloc(table->symbols, sizeof(Symbol) * table->capacity);
+    }
+    
+    // Look for existing symbol in this scope
+    for (int i = 0; i < table->count; i++) {
+        if (strcmp(table->symbols[i].name, name) == 0) {
+            // Free the old value
+            free_value(table->symbols[i].value);
+            
+            // Update with new value
+            table->symbols[i].value = copy_value(value);
+            return i;
+        }
     }
     
     // Add new symbol
-    symbol_table[symbol_count].name = strdup(name);
+    table->symbols[table->count].name = strdup(name);
+    table->symbols[table->count].value = copy_value(value);
     
-    // Copy value (deep copy for strings)
-    symbol_table[symbol_count].value = value;
-    if (value.type == VAL_STRING && value.data.sval) {
-        symbol_table[symbol_count].value.data.sval = strdup(value.data.sval);
-    }
-    
-    return symbol_count++;
+    return table->count++;
 }
 
-int find_symbol(char* name) {
-    for (int i = 0; i < symbol_count; i++) {
-        if (strcmp(symbol_table[i].name, name) == 0) {
+int find_symbol_in_table(SymbolTable* table, char* name) {
+    for (int i = 0; i < table->count; i++) {
+        if (strcmp(table->symbols[i].name, name) == 0) {
             return i;
         }
     }
     return -1;
+}
+
+int find_symbol(char* name) {
+    // First look in current scope
+    SymbolTable* table = current_symbols;
+    
+    while (table != NULL) {
+        int index = find_symbol_in_table(table, name);
+        if (index != -1) {
+            return index;
+        }
+        table = table->parent;
+    }
+    
+    return -1;
+}
+
+Value get_symbol_value(SymbolTable* table, char* name) {
+    // Search symbol in this scope and parent scopes
+    SymbolTable* current = table;
+    
+    while (current != NULL) {
+        int index = find_symbol_in_table(current, name);
+        if (index != -1) {
+            return copy_value(current->symbols[index].value);
+        }
+        current = current->parent;
+    }
+    
+    // Not found - return default value (0)
+    Value empty;
+    empty.type = VAL_INTEGER;
+    empty.data.ival = 0;
+    fprintf(stderr, "Error: Undefined variable '%s'\n", name);
+    return empty;
+}
+
+void push_scope() {
+    SymbolTable* new_table = create_symbol_table();
+    new_table->parent = current_symbols;
+    current_symbols = new_table;
+}
+
+void pop_scope() {
+    if (current_symbols == NULL) return;
+    
+    SymbolTable* old_table = current_symbols;
+    current_symbols = current_symbols->parent;
+    
+    free_symbol_table(old_table);
+}
+
+// Helper functions for variable management
+void declare_variable(char* name, Value value) {
+    add_symbol(current_symbols, name, value);
+}
+
+void set_variable(char* name, Value value) {
+    // Look for the variable in all scopes
+    SymbolTable* table = current_symbols;
+    
+    while (table != NULL) {
+        int index = find_symbol_in_table(table, name);
+        if (index != -1) {
+            // Free old value
+            free_value(table->symbols[index].value);
+            
+            // Set new value
+            table->symbols[index].value = copy_value(value);
+            return;
+        }
+        table = table->parent;
+    }
+    
+    fprintf(stderr, "Error: Undefined variable '%s'\n", name);
+}
+
+Value get_variable(char* name) {
+    return get_symbol_value(current_symbols, name);
+}
+
+void print_value(Value val) {
+    switch (val.type) {
+        case VAL_INTEGER:
+            printf("%d\n", val.data.ival);
+            break;
+        case VAL_FLOAT:
+            printf("%g\n", val.data.fval);
+            break;
+        case VAL_STRING:
+            printf("%s\n", val.data.sval);
+            break;
+        case VAL_BOOLEAN:
+            printf("%s\n", val.data.bval ? "true" : "false");
+            break;
+        case VAL_FUNCTION:
+            printf("function %s\n", val.data.func.name);
+            break;
+        case VAL_EXCEPTION:
+            printf("Exception %s: %s\n", 
+                val.data.exception.type ? val.data.exception.type : "Error",
+                val.data.exception.message ? val.data.exception.message : "Unknown error");
+            break;
+    }
 }
 
 // Runtime evaluation
@@ -567,19 +1028,7 @@ Value evaluate_expression(ASTNode* expr) {
             break;
             
         case NODE_IDENTIFIER: {
-            int index = find_symbol(expr->data.sval);
-            if (index == -1) {
-                fprintf(stderr, "Error: Undefined variable '%s'\n", expr->data.sval);
-                result.type = VAL_INTEGER;
-                result.data.ival = 0;
-            } else {
-                result = symbol_table[index].value;
-                
-                // Deep copy for strings
-                if (result.type == VAL_STRING && result.data.sval) {
-                    result.data.sval = strdup(result.data.sval);
-                }
-            }
+            result = get_variable(expr->data.sval);
             break;
         }
         
@@ -600,9 +1049,15 @@ Value evaluate_expression(ASTNode* expr) {
                 } else if (left.type == VAL_INTEGER) {
                     sprintf(left_str, "%d", left.data.ival);
                 } else if (left.type == VAL_FLOAT) {
-                    sprintf(left_str, "%g", left.data.fval);  
+                    sprintf(left_str, "%g", left.data.fval);
                 } else if (left.type == VAL_BOOLEAN) {
                     sprintf(left_str, "%s", left.data.bval ? "true" : "false");
+                } else if (left.type == VAL_FUNCTION) {
+                    sprintf(left_str, "function %s", left.data.func.name);
+                } else if (left.type == VAL_EXCEPTION) {
+                    // Convert exception to string
+                    sprintf(left_str, "%s", left.data.exception.message ? 
+                            left.data.exception.message : "Unknown error");
                 }
                 
                 // Convert right to string
@@ -611,9 +1066,15 @@ Value evaluate_expression(ASTNode* expr) {
                 } else if (right.type == VAL_INTEGER) {
                     sprintf(right_str, "%d", right.data.ival);
                 } else if (right.type == VAL_FLOAT) {
-                    sprintf(right_str, "%g", right.data.fval); 
+                    sprintf(right_str, "%g", right.data.fval);
                 } else if (right.type == VAL_BOOLEAN) {
                     sprintf(right_str, "%s", right.data.bval ? "true" : "false");
+                } else if (right.type == VAL_FUNCTION) {
+                    sprintf(right_str, "function %s", right.data.func.name);
+                } else if (right.type == VAL_EXCEPTION) {
+                    // Convert exception to string
+                    sprintf(right_str, "%s", right.data.exception.message ? 
+                            right.data.exception.message : "Unknown error");
                 }
                 
                 // Allocate and concatenate
@@ -787,6 +1248,43 @@ Value evaluate_expression(ASTNode* expr) {
             break;
         }
         
+        case NODE_FUNCTION_CALL: {
+            // Find the function definition
+            Value func_val = get_variable(expr->data.func_call.name);
+            
+            if (func_val.type != VAL_FUNCTION) {
+                fprintf(stderr, "Error: '%s' is not a function\n", expr->data.func_call.name);
+                // Create an exception instead of returning 0
+                result = create_exception("TypeError", "Not a function");
+                break;
+            }
+            
+            // Call the function
+            ASTNode* func_def = func_val.data.func.func_def;
+            
+            // Evaluate all arguments
+            ASTNode** evaluated_args = expr->data.func_call.arguments;
+            int arg_count = expr->data.func_call.arg_count;
+            
+            // Execute the function and get the return value
+            ReturnValue ret = call_function(func_def, evaluated_args, arg_count);
+            
+            // If the function threw an exception, propagate it
+            if (ret.has_exception) {
+                result = ret.return_value;
+            }
+            // If the function returned a value, use it
+            else if (ret.has_return) {
+                result = ret.return_value;
+            } else {
+                // Default return value
+                result.type = VAL_INTEGER;
+                result.data.ival = 0;
+            }
+            
+            break;
+        }
+        
         default:
             fprintf(stderr, "Error: Invalid expression type\n");
             result.type = VAL_INTEGER;
@@ -796,99 +1294,145 @@ Value evaluate_expression(ASTNode* expr) {
     return result;
 }
 
-// Helper functions for variable management
-void declare_variable(char* name, Value value) {
-    int index = find_symbol(name);
-    if (index != -1) {
-        fprintf(stderr, "Error: Variable '%s' already declared\n", name);
-        return;
+// Execute a function
+ReturnValue call_function(ASTNode* func_def, ASTNode** arguments, int arg_count) {
+    ReturnValue ret = {0}; // Initialize with no return value or exception
+    
+    if (func_def->type != NODE_FUNCTION_DEF) {
+        fprintf(stderr, "Error: Not a function definition\n");
+        ret.has_exception = 1;
+        ret.return_value = create_exception("TypeError", "Not a function definition");
+        return ret;
     }
     
-    add_symbol(name, value);
+    // Create a new scope
+    push_scope();
+    
+    // Evaluate arguments and bind to parameters
+    for (int i = 0; i < func_def->data.func_def.param_count && i < arg_count; i++) {
+        Value arg = evaluate_expression(arguments[i]);
+        
+        // Check if argument evaluation threw an exception
+        if (arg.type == VAL_EXCEPTION) {
+            // Clean up the scope and propagate the exception
+            pop_scope();
+            ret.has_exception = 1;
+            ret.return_value = arg;
+            return ret;
+        }
+        
+        declare_variable(func_def->data.func_def.parameters[i], arg);
+        
+        // Free string values after copying
+        if (arg.type == VAL_STRING && arg.data.sval) {
+            free(arg.data.sval);
+        }
+    }
+    
+    // Execute the function body
+    ret = interpret_block(func_def->data.func_def.body, 0); // Don't create a new scope
+    
+    // Pop the function scope
+    pop_scope();
+    
+    return ret;
 }
 
-void set_variable(char* name, Value value) {
-    int index = find_symbol(name);
-    if (index == -1) {
-        fprintf(stderr, "Error: Undefined variable '%s'\n", name);
-        return;
+// Execute a block of statements (with optional new scope)
+ReturnValue interpret_block(ASTNode* block, int new_scope) {
+    ReturnValue ret = {0}; // Initialize with no return
+    
+    if (block->type != NODE_BLOCK) {
+        fprintf(stderr, "Error: Not a block node\n");
+        return ret;
     }
     
-    // Free old string value if needed
-    if (symbol_table[index].value.type == VAL_STRING && 
-        symbol_table[index].value.data.sval) {
-        free(symbol_table[index].value.data.sval);
+    // Create a new scope if requested
+    if (new_scope) {
+        push_scope();
     }
     
-    // Copy the value
-    symbol_table[index].value = value;
-    
-    // Create a deep copy for strings
-    if (value.type == VAL_STRING && value.data.sval) {
-        symbol_table[index].value.data.sval = strdup(value.data.sval);
-    }
-}
-
-Value get_variable(char* name) {
-    int index = find_symbol(name);
-    Value result;
-    
-    if (index == -1) {
-        fprintf(stderr, "Error: Undefined variable '%s'\n", name);
-        result.type = VAL_INTEGER;
-        result.data.ival = 0;
-        return result;
-    }
-    
-    return symbol_table[index].value;
-}
-
-void print_value(Value val) {
-    switch (val.type) {
-        case VAL_INTEGER:
-            printf("%d\n", val.data.ival);
+    // Execute each statement in the block
+    for (int i = 0; i < block->data.block.count; i++) {
+        ret = interpret(block->data.block.statements[i]);
+        
+        // If a return statement was executed, stop
+        if (ret.has_return) {
             break;
-        case VAL_FLOAT:
-            printf("%g\n", val.data.fval);  
-            break;
-        case VAL_STRING:
-            printf("%s\n", val.data.sval);
-            break;
-        case VAL_BOOLEAN:
-            printf("%s\n", val.data.bval ? "true" : "false");
-            break;
+        }
     }
+    
+    // Pop the scope if we created one
+    if (new_scope) {
+        pop_scope();
+    }
+    
+    return ret;
 }
 
 // Execute a statement
-void interpret(ASTNode* node) {
-    if (!node) return;
+ReturnValue interpret(ASTNode* node) {
+    ReturnValue ret = {0}; // Initialize with no return or exception
+    
+    if (!node) return ret;
     
     switch (node->type) {
         case NODE_BLOCK:
-            for (int i = 0; i < node->data.block.count; i++) {
-                interpret(node->data.block.statements[i]);
-            }
+            ret = interpret_block(node, 1); // Create a new scope
             break;
             
         case NODE_DECLARATION: {
             Value value = evaluate_expression(node->data.declaration.initial_value);
+            
+            // Check if evaluation resulted in an exception
+            if (value.type == VAL_EXCEPTION) {
+                ret.has_exception = 1;
+                ret.return_value = value;
+                return ret;
+            }
+            
             declare_variable(node->data.declaration.name, value);
+            
+            // Free string if needed (after copying)
+            if (value.type == VAL_STRING && value.data.sval) {
+                free(value.data.sval);
+            }
             break;
         }
         
         case NODE_ASSIGNMENT: {
             Value value = evaluate_expression(node->data.assignment.value);
+            
+            // Check if evaluation resulted in an exception
+            if (value.type == VAL_EXCEPTION) {
+                ret.has_exception = 1;
+                ret.return_value = value;
+                return ret;
+            }
+            
             set_variable(node->data.assignment.name, value);
+            
+            // Free string if needed (after copying)
+            if (value.type == VAL_STRING && value.data.sval) {
+                free(value.data.sval);
+            }
             break;
         }
         
         case NODE_IF: {
             Value condition = evaluate_expression(node->data.if_stmt.condition);
+            
+            // Check if evaluation resulted in an exception
+            if (condition.type == VAL_EXCEPTION) {
+                ret.has_exception = 1;
+                ret.return_value = condition;
+                return ret;
+            }
+            
             if (value_to_boolean(condition)) {
-                interpret(node->data.if_stmt.if_branch);
+                ret = interpret(node->data.if_stmt.if_branch);
             } else if (node->data.if_stmt.else_branch) {
-                interpret(node->data.if_stmt.else_branch);
+                ret = interpret(node->data.if_stmt.else_branch);
             }
             
             // Free string if needed
@@ -901,16 +1445,35 @@ void interpret(ASTNode* node) {
         case NODE_WHILE: {
             Value condition = evaluate_expression(node->data.while_loop.condition);
             
-            while (value_to_boolean(condition)) {
+            // Check if evaluation resulted in an exception
+            if (condition.type == VAL_EXCEPTION) {
+                ret.has_exception = 1;
+                ret.return_value = condition;
+                return ret;
+            }
+            
+            while (value_to_boolean(condition) && !ret.has_return && !ret.has_exception) {
                 // Free previous condition value if it's a string
                 if (condition.type == VAL_STRING && condition.data.sval) {
                     free(condition.data.sval);
                 }
                 
-                interpret(node->data.while_loop.body);
+                ret = interpret(node->data.while_loop.body);
+                
+                // If a return or exception was encountered, break out
+                if (ret.has_return || ret.has_exception) {
+                    break;
+                }
                 
                 // Re-evaluate condition
                 condition = evaluate_expression(node->data.while_loop.condition);
+                
+                // Check if re-evaluation resulted in an exception
+                if (condition.type == VAL_EXCEPTION) {
+                    ret.has_exception = 1;
+                    ret.return_value = condition;
+                    return ret;
+                }
             }
             
             // Free final condition value if it's a string
@@ -922,6 +1485,14 @@ void interpret(ASTNode* node) {
         
         case NODE_PRINT: {
             Value value = evaluate_expression(node->data.print_stmt.expr);
+            
+            // Check if evaluation resulted in an exception
+            if (value.type == VAL_EXCEPTION) {
+                ret.has_exception = 1;
+                ret.return_value = value;
+                return ret;
+            }
+            
             print_value(value);
             
             // Free string if needed
@@ -930,11 +1501,158 @@ void interpret(ASTNode* node) {
             }
             break;
         }
+        
+        case NODE_FUNCTION_DEF: {
+            // Create a function value
+            Value func_val;
+            func_val.type = VAL_FUNCTION;
+            func_val.data.func.func_def = node;
+            func_val.data.func.name = strdup(node->data.func_def.name);
+            
+            // Add to symbol table
+            declare_variable(node->data.func_def.name, func_val);
+            
+            // Free the temporary function value (it was copied in declare_variable)
+            free(func_val.data.func.name);
+            break;
+        }
+        
+        case NODE_FUNCTION_CALL: {
+            // Evaluate the function call (result is discarded for standalone calls)
+            Value result = evaluate_expression(node);
+            
+            // Check if call resulted in an exception
+            if (result.type == VAL_EXCEPTION) {
+                ret.has_exception = 1;
+                ret.return_value = result;
+                return ret;
+            }
+            
+            // Free value if needed
+            if (result.type == VAL_STRING && result.data.sval) {
+                free(result.data.sval);
+            }
+            break;
+        }
+        
+        case NODE_RETURN: {
+            // Evaluate the return expression
+            Value return_val = evaluate_expression(node->data.return_stmt.expr);
+            
+            // Check if evaluation resulted in an exception
+            if (return_val.type == VAL_EXCEPTION) {
+                ret.has_exception = 1;
+                ret.return_value = return_val;
+                return ret;
+            }
+            
+            // Set the return flag and value
+            ret.has_return = 1;
+            ret.return_value = return_val; // No need to free, it will be returned
+            break;
+        }
+        
+        case NODE_TRY_CATCH: {
+            // Execute the try block
+            ReturnValue try_result = interpret(node->data.try_catch.try_block);
+            
+            // If an exception occurred in the try block, handle it in the catch block
+            if (try_result.has_exception) {
+                // First, save the exception value for the catch block
+                Value exception = try_result.return_value;
+                
+                // Create a new scope for the catch block
+                push_scope();
+                
+                // Bind the exception to the catch variable name
+                declare_variable(node->data.try_catch.exception_var, exception);
+                
+                // Execute the catch block
+                ReturnValue catch_result = interpret(node->data.try_catch.catch_block);
+                
+                // Pop the catch scope
+                pop_scope();
+                
+                // Use the result from the catch block (either normal, return, or new exception)
+                ret = catch_result;
+            } else {
+                // No exception, use the try block result
+                ret = try_result;
+            }
+            
+            // Always execute the finally block if there is one
+            if (node->data.try_catch.finally_block) {
+                // Save the current return or exception status
+                int had_return = ret.has_return;
+                int had_exception = ret.has_exception;
+                Value old_value = ret.return_value;
+                
+                // Execute the finally block
+                ReturnValue finally_result = interpret(node->data.try_catch.finally_block);
+                
+                // If the finally block has a return or exception, it overrides the previous one
+                if (finally_result.has_return || finally_result.has_exception) {
+                    // Free the old return value if it was a string or exception
+                    if (had_return || had_exception) {
+                        free_value(old_value);
+                    }
+                    
+                    // Use the finally result
+                    ret = finally_result;
+                } else if (had_return || had_exception) {
+                    // Restore the original return or exception
+                    ret.has_return = had_return;
+                    ret.has_exception = had_exception;
+                    ret.return_value = old_value;
+                }
+            }
+            
+            break;
+        }
+        
+        case NODE_THROW: {
+            // Evaluate the exception expression
+            Value expr_value = evaluate_expression(node->data.throw_stmt.expr);
+            
+            // If the expression is already an exception, use it directly
+            if (expr_value.type == VAL_EXCEPTION) {
+                ret.has_exception = 1;
+                ret.return_value = expr_value;
+            } else {
+                // Convert the value to a string for the exception message
+                char message[256] = "";
+                char type[64] = "Exception";
+                
+                // Format message based on value type
+                if (expr_value.type == VAL_STRING) {
+                    strncpy(message, expr_value.data.sval, 255);
+                } else if (expr_value.type == VAL_INTEGER) {
+                    sprintf(message, "%d", expr_value.data.ival);
+                } else if (expr_value.type == VAL_FLOAT) {
+                    sprintf(message, "%g", expr_value.data.fval);
+                } else if (expr_value.type == VAL_BOOLEAN) {
+                    sprintf(message, "%s", expr_value.data.bval ? "true" : "false");
+                } else if (expr_value.type == VAL_FUNCTION) {
+                    sprintf(message, "function %s", expr_value.data.func.name);
+                }
+                
+                // Free the original value
+                free_value(expr_value);
+                
+                // Create and set the exception
+                ret.has_exception = 1;
+                ret.return_value = create_exception(type, message);
+            }
+            
+            break;
+        }
     }
+    
+    return ret;
 }
 
 void yyerror(const char* s) {
-    fprintf(stderr, "Error at line %d: %s\n", line_num, s);
+    fprintf(stderr, "Error at line %d: %s\n", line_num - 2, s);
 }
 
 int main(int argc, char** argv) {
@@ -951,6 +1669,10 @@ int main(int argc, char** argv) {
     
     yyin = input_file;
     
+    // Initialize symbol tables
+    global_symbols = create_symbol_table();
+    current_symbols = global_symbols;
+    
     // Parse the input file to build the AST
     yyparse();
     
@@ -962,13 +1684,8 @@ int main(int argc, char** argv) {
     
     fclose(input_file);
     
-    // Free symbol table
-    for (int i = 0; i < symbol_count; i++) {
-        free(symbol_table[i].name);
-        if (symbol_table[i].value.type == VAL_STRING && symbol_table[i].value.data.sval) {
-            free(symbol_table[i].value.data.sval);
-        }
-    }
+    // Free symbol tables
+    free_symbol_table(global_symbols);
     
     return 0;
 }
