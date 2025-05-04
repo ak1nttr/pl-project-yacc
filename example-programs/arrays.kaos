@@ -1,0 +1,263 @@
+# Example program demonstrating array operations
+
+# Creating various types of arrays
+var numbers = [1, 2, 3, 4, 5];
+var names = ["Ahmad", "Burak", "Canan", "Dela Cruz", "Sadio Mane"];
+var mixed = [1, "two", 3.14, true, false];
+var empty = [];
+var booleans = [true, false, true, true, false];
+var decimals = [1.1, 2.2, 3.3, 4.4, 5.5];
+
+# Printing arrays
+print("Array of numbers: " + numbers);
+print("Array of names: " + names);
+print("Mixed array: " + mixed);
+print("Array of booleans: " + booleans);
+print("Array of decimals: " + decimals);
+print("Empty array: " + empty);
+
+# Accessing array elements
+print("\nAccessing array elements:");
+print("First number: " + numbers[0]);
+print("Last name: " + names[4]);
+print("Mixed element: " + mixed[2]);
+print("Boolean value: " + booleans[1]);
+print("Decimal value: " + decimals[3]);
+
+# Modifying array elements
+numbers[0] = 10;
+names[1] = "Enzo Fernandes";
+mixed[3] = false;
+booleans[2] = false;
+decimals[1] = 2.5;
+
+print("\nAfter modification:");
+print("Modified numbers: " + numbers);
+print("Modified names: " + names);
+print("Modified mixed: " + mixed);
+print("Modified booleans: " + booleans);
+print("Modified decimals: " + decimals);
+
+# Using expressions as indices
+var index = 2;
+print("\nUsing variable as index: " + numbers[index]);
+print("Using expression as index: " + numbers[1 + 1]);
+print("Using another expression: " + names[1 + index]);
+
+# Accessing with variables holding different values
+var idx1 = 1;
+var idx2 = 3;
+print("Element at idx1: " + mixed[idx1]);
+print("Element at idx2: " + mixed[idx2]);
+
+# Nested arrays
+var matrix = [
+    [1, 2, 3],
+    [4, 5, 6],
+    [7, 8, 9]
+];
+
+print("\nNested array: " + matrix);
+print("Matrix[1][1]: " + matrix[1][1]);
+print("Matrix[0][2]: " + matrix[0][2]);
+print("Matrix[2][0]: " + matrix[2][0]);
+
+# More nested array examples
+var nestedMixed = [
+    ["a", "b", "c"],
+    [1, 2, 3],
+    [true, false, true]
+];
+
+print("\nNested mixed array: " + nestedMixed);
+print("nestedMixed[0][1]: " + nestedMixed[0][1]);
+print("nestedMixed[1][2]: " + nestedMixed[1][2]);
+print("nestedMixed[2][0]: " + nestedMixed[2][0]);
+
+# Array operations in functions
+function sumArray(arr) {
+    var sum = 0;
+    var i = 0;
+    
+    while (i < 5) {  # Assuming array length is 5
+        sum = sum + arr[i];
+        i = i + 1;
+    }
+    
+    return sum;
+}
+
+print("\nSum of numbers array: " + sumArray(numbers));
+print("Sum of decimals array: " + sumArray(decimals));
+
+
+# Function to count occurrences of a value
+function countValue(arr, value) {
+    var count = 0;
+    var i = 0;
+    
+    while (i < 5) {
+        if (arr[i] == value) {
+            count = count + 1;
+        }
+        i = i + 1;
+    }
+    
+    return count;
+}
+
+print("\nCount of 'true' in booleans: " + countValue(booleans, true));
+print("Count of 'false' in booleans: " + countValue(booleans, false));
+
+# Array resizing
+var dynamic = [1, 2, 3];
+print("\nOriginal dynamic array: " + dynamic);
+
+dynamic[3] = 4;  # Extend by one
+print("After extending by one: " + dynamic);
+
+
+# Try-catch with arrays
+try {
+    var badIndex = 10;
+    var element = numbers[badIndex];
+    print("This won't execute");
+} catch (e) {
+    print("\nCaught array index error: Index out of bounds - "+ e);
+}
+
+
+# Return array from function
+function createSequence(n) {
+    var sequence = [];
+    var i = 0;
+    
+    while (i < n) {
+        sequence[i] = i * i;
+        i = i + 1;
+    }
+    
+    return sequence;
+}
+
+var squares = createSequence(5);
+print("\nArray of squares: " + squares);
+
+# Function to create an array of cubes
+function createCubes(n) {
+    var cubes = [];
+    var i = 0;
+    
+    while (i < n) {
+        cubes[i] = i * i * i;
+        i = i + 1;
+    }
+    
+    return cubes;
+}
+
+var cubes = createCubes(5);
+print("Array of cubes: " + cubes);
+
+# Function to generate an array of fibonacci numbers up to n
+function fibonacci(n) {
+    var fib = [];
+    
+    # Handle first two fibonacci numbers
+    if (n >= 1) {
+        fib[0] = 0;
+    }
+    if (n >= 2) {
+        fib[1] = 1;
+    }
+    
+    # Calculate the rest of the sequence
+    var i = 2;
+    while (i < n) {
+        fib[i] = fib[i-1] + fib[i-2];
+        i = i + 1;
+    }
+    
+    return fib;
+}
+
+# Test the fibonacci function
+var fibNumbers = fibonacci(10);
+print("\nFibonacci sequence: " + fibNumbers);
+
+# Function to generate triangular numbers
+function triangular(n) {
+    var tri = [];
+    var i = 0;
+    
+    while (i < n) {
+        tri[i] = (i * (i + 1)) / 2;
+        i = i + 1;
+    }
+    
+    return tri;
+}
+
+var triNumbers = triangular(8);
+print("Triangular numbers: " + triNumbers);
+
+# Function to reverse an array
+function reverseArray(arr) {
+    var reversed = [];
+    var i = 0;
+    var n = 5;  # Assuming array length is 5
+    
+    while (i < n) {
+        reversed[i] = arr[n - 1 - i];
+        i = i + 1;
+    }
+    
+    return reversed;
+}
+
+var reversedNumbers = reverseArray(numbers);
+print("\nOriginal numbers: " + numbers);
+print("Reversed numbers: " + reversedNumbers);
+
+# Function to create array of repeated values
+function createRepeated(value, count) {
+    var result = [];
+    var i = 0;
+    
+    while (i < count) {
+        result[i] = value;
+        i = i + 1;
+    }
+    
+    return result;
+}
+
+var repeatedValue = createRepeated("hello", 6);
+print("\nRepeated value array: " + repeatedValue);
+
+# Using nested loops with arrays
+function createMultiplicationTable(n) {
+    var table = [];
+    var i = 0;
+    
+    while (i < n) {
+        var row = [];
+        var j = 0;
+        
+        while (j < n) {
+            row[j] = (i + 1) * (j + 1);
+            j = j + 1;
+        }
+        
+        table[i] = row;
+        i = i + 1;
+    }
+    
+    return table;
+}
+
+var multiTable = createMultiplicationTable(3);
+print("\nMultiplication table 3x3: " + multiTable);
+print("2x2 value: " + multiTable[1][1]);
+print("3x3 value: " + multiTable[2][2]);
+print("1x3 value: " + multiTable[0][2]);
